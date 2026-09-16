@@ -2,7 +2,17 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional
 
+class CustomerCreate(BaseModel):
+    name: str
+    phone: str
+    address: str
 
+class CustomerResponse(BaseModel):
+    id: int
+    name: str
+    phone: str
+    address: str
+      
 class VendorCreate(BaseModel):
     name: str
     vendor_trade: str
