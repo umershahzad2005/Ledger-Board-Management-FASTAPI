@@ -17,7 +17,6 @@ class VendorResponse(BaseModel):
     id: int
     name: str
     vendor_trade: str
-    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,6 +33,5 @@ class VendorTransactionResponse(BaseModel):
     transaction_type: str
     amount: float
     description: Optional[str]
-    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

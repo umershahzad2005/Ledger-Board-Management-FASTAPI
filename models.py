@@ -22,10 +22,7 @@ class Vendor(Base):
 
     vendor_trade = Column(String, nullable=False)
 
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow
-    )
+
 
     transactions = relationship(
         "VendorTransaction",
@@ -57,10 +54,6 @@ class VendorTransaction(Base):
 
     description = Column(String, nullable=True)
 
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow
-    )
 
     vendor = relationship(
         "Vendor",
