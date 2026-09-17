@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from database import get_db, Base, engine
 from models import Customer,Vendor, VendorTransaction
 from schemas import CustomerCreate, CustomerResponse
@@ -11,6 +12,29 @@ from schemas import (
     VendorTransactionResponse
 )
 Base.metadata.create_all(bind=engine)
+
+# Auto-add columns to existing SQLite database if they do not exist
+with engine.connect() as conn:
+    for col, col_type in [("no_of_units", "FLOAT"), ("per_unit_price", "FLOAT"), ("product_name", "VARCHAR")]:
+        try:
+            conn.execute(text(f"ALTER TABLE vendor_transactions ADD COLUMN {col} {col_type}"))
+            conn.commit()
+        except Exception:
+            pass
+
+    for col, col_type in [("vendor_role", "VARCHAR"), ("contact_number", "VARCHAR")]:
+        try:
+            conn.execute(text(f"ALTER TABLE vendors ADD COLUMN {col} {col_type}"))
+            conn.commit()
+        except Exception:
+            pass
+
+    try:
+        conn.execute(text("UPDATE vendors SET vendor_role = vendor_trade WHERE vendor_role IS NULL AND vendor_trade IS NOT NULL"))
+        conn.commit()
+    except Exception:
+        pass
+
 app = FastAPI(
     title="Ledger Board - Vendor Management API"
 )
@@ -90,7 +114,8 @@ def create_vendor(
 
     new_vendor = Vendor(
         name=vendor.name,
-        vendor_trade=vendor.vendor_trade
+        vendor_role=vendor.vendor_role,
+        contact_number=vendor.contact_number
     )
 
     db.add(new_vendor)
@@ -138,11 +163,12 @@ def get_vendor(vendor_id: int,db: Session = Depends(get_db)):
     return {
         "id": vendor.id,
         "name": vendor.name,
-        "vendor_trade": vendor.vendor_trade,
+        "vendor_role": vendor.vendor_role,
+        "contact_number": vendor.contact_number,
         "total_purchase": total_purchase,
         "total_paid": total_paid,
         "remaining_amount": remaining_amount,
-        "created_at": vendor.created_at
+        "created_at": getattr(vendor, "created_at", None)
     }
 
 
@@ -169,8 +195,11 @@ def update_vendor(
     if vendor_data.name is not None:
         vendor.name = vendor_data.name
 
-    if vendor_data.vendor_trade is not None:
-        vendor.vendor_trade = vendor_data.vendor_trade
+    if vendor_data.vendor_role is not None:
+        vendor.vendor_role = vendor_data.vendor_role
+
+    if vendor_data.contact_number is not None:
+        vendor.contact_number = vendor_data.contact_number
 
     db.commit()
     db.refresh(vendor)
@@ -234,7 +263,17 @@ def add_vendor_transaction(
             detail="Transaction type must be purchase or payment"
         )
 
-    if transaction.amount <= 0:
+    if transaction.amount is not None:
+        amount = transaction.amount
+    elif transaction.no_of_units is not None and transaction.per_unit_price is not None:
+        amount = round(transaction.no_of_units * transaction.per_unit_price, 2)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide either 'amount' or both 'no_of_units' and 'per_unit_price'"
+        )
+
+    if amount <= 0:
         raise HTTPException(
             status_code=400,
             detail="Amount must be greater than zero"
@@ -243,7 +282,10 @@ def add_vendor_transaction(
     new_transaction = VendorTransaction(
         vendor_id=vendor_id,
         transaction_type=transaction.transaction_type,
-        amount=transaction.amount,
+        product_name=transaction.product_name,
+        no_of_units=transaction.no_of_units,
+        per_unit_price=transaction.per_unit_price,
+        amount=amount,
         description=transaction.description
     )
 

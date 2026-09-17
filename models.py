@@ -24,7 +24,9 @@ class Vendor(Base):
 
     name = Column(String, nullable=False)
 
-    vendor_trade = Column(String, nullable=False)
+    vendor_role = Column(String, nullable=False)
+
+    contact_number = Column(String, nullable=True)
 
 
 
@@ -49,6 +51,21 @@ class VendorTransaction(Base):
     transaction_type = Column(
         String,
         nullable=False
+    )
+
+    product_name = Column(
+        String,
+        nullable=True
+    )
+
+    no_of_units = Column(
+        Float,
+        nullable=True
+    )
+
+    per_unit_price = Column(
+        Float,
+        nullable=True
     )
 
     amount = Column(
