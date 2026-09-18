@@ -1,9 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.routing import APIRoute
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from database import get_db, Base, engine
-from models import Customer, Vendor, VendorTransaction, User
-from schemas import CustomerCreate, CustomerResponse
+from models import Customer, Vendor, VendorTransaction, User,Inventory
+from schemas import CustomerCreate, CustomerResponse,InventoryCreate,InventoryResponse
 from schemas import (
     VendorCreate,
     VendorUpdate,
@@ -388,3 +389,125 @@ def get_vendor_transactions(
     ).all()
 
     return transactions
+
+    
+@app.get("/inventory", response_model=list[InventoryResponse])
+def get_inventory(
+    db: Session = Depends(get_db)):
+    return db.query(Inventory).all()
+
+@app.get("/inventory/{item_id}", response_model=InventoryResponse)
+def get_inventory_item(
+    item_id: int,
+    db: Session = Depends(get_db)):
+    item = db.query(Inventory).filter(Inventory.id == item_id).first()
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory item not found")
+    return item
+
+@app.post("/inventory", response_model=InventoryResponse)
+def create_inventory_item(
+    item: InventoryCreate,
+    db: Session = Depends(get_db)):
+    new_item = Inventory(
+        product_name=item.product_name,
+        quantity=item.quantity,
+        purchase_price=item.purchase_price,
+        selling_price=round(item.purchase_price * 1.10, 2))
+
+    db.add(new_item)
+    db.commit()
+    db.refresh(new_item)
+
+    return new_item
+
+
+@app.get("/inventory/transaction/{transaction_id}",response_model=InventoryResponse)
+def add_transaction_to_inventory(
+    transaction_id: int,
+    db: Session = Depends(get_db)):
+
+    transaction = db.query(VendorTransaction).filter(VendorTransaction.id == transaction_id).first()
+
+    if not transaction:
+        raise HTTPException(
+            status_code=404,
+            detail="Vendor transaction not found"
+        )
+    if transaction.transaction_type != "purchase":
+        raise HTTPException(
+            status_code=400,
+            detail="Only purchase transaction can be added to inventory"
+        )
+    if (
+        not transaction.product_name
+        or not transaction.no_of_units
+        or not transaction.per_unit_price):
+        raise HTTPException(
+            status_code=400,
+            detail="Transaction does not have product details"
+        )
+    item = db.query(Inventory).filter(Inventory.product_name == transaction.product_name).first()
+    selling_price = round(
+        transaction.per_unit_price * 1.10,
+        2)
+
+    if item:
+        item.quantity += int(transaction.no_of_units)
+        item.purchase_price = transaction.per_unit_price
+        item.selling_price = selling_price
+    else:
+        item = Inventory(
+            product_name=transaction.product_name,
+            quantity=int(transaction.no_of_units),
+            purchase_price=transaction.per_unit_price,
+            selling_price=selling_price)
+
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+        
+@app.put("/inventory/{item_id}", response_model=InventoryResponse)
+def update_inventory_item(item_id: int,item_data: InventoryCreate,
+    db: Session = Depends(get_db)):
+    item = db.query(Inventory).filter(Inventory.id == item_id).first()
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory item not found"
+        )
+    item.product_name = item_data.product_name
+    item.quantity = item_data.quantity
+    item.purchase_price = item_data.purchase_price
+    item.selling_price = item_data.selling_price
+    db.commit()
+    db.refresh(item)
+    return item
+
+@app.delete("/inventory/{item_id}")
+def delete_inventory_item(item_id: int,db: Session = Depends(get_db)):
+    item = db.query(Inventory).filter(Inventory.id == item_id).first()
+
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory item not found"
+        )
+    db.delete(item)
+    db.commit()
+    return {
+        "message": "Inventory item deleted successfully"
+    }
+for route in app.routes:
+    if isinstance(route, APIRoute):
+        if route.path.startswith("/customers"):
+            route.tags = ["Customers"]
+        elif route.path.startswith("/vendor"):
+            route.tags = ["Vendors"]
+        elif route.path.startswith("/inventory"):
+            route.tags = ["Inventory"]

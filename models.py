@@ -93,3 +93,10 @@ class VendorTransaction(Base):
         "Vendor",
         back_populates="transactions"
     )
+class Inventory(Base):
+    __tablename__ = "inventory"
+    id = Column(Integer, primary_key=True)
+    product_name = Column(String, nullable=False)
+    quantity = Column(Integer, nullable=False)
+    purchase_price = Column(Float, nullable=False)
+    selling_price = Column(Float, nullable=False)
