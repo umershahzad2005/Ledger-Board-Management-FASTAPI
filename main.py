@@ -147,10 +147,19 @@ def add_customer_transaction(
             detail="Transaction type must be purchase or payment"
         )
 
+    # Calculate amount
     if transaction.amount is not None:
         amount = transaction.amount
-    elif transaction.no_of_units is not None and transaction.per_unit_price is not None:
-        amount = round(transaction.no_of_units * transaction.per_unit_price, 2)
+
+    elif (
+        transaction.no_of_units is not None
+        and transaction.per_unit_price is not None
+    ):
+        amount = round(
+            transaction.no_of_units * transaction.per_unit_price,
+            2
+        )
+
     else:
         raise HTTPException(
             status_code=400,
@@ -163,6 +172,43 @@ def add_customer_transaction(
             detail="Amount must be greater than zero"
         )
 
+    # Only customer purchase affects inventory
+    if transaction.transaction_type == "purchase":
+
+        if not transaction.product_name:
+            raise HTTPException(
+                status_code=400,
+                detail="Product name is required for purchase"
+            )
+
+        if not transaction.no_of_units or transaction.no_of_units <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Quantity must be greater than zero"
+            )
+
+        # Find product in inventory
+        item = db.query(Inventory).filter(
+            Inventory.product_name == transaction.product_name
+        ).first()
+
+        if not item:
+            raise HTTPException(
+                status_code=404,
+                detail="Product not found in inventory"
+            )
+
+        # Check available stock
+        if item.quantity < transaction.no_of_units:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not enough stock. Available quantity: {item.quantity}"
+            )
+
+        # Reduce inventory
+        item.quantity -= int(transaction.no_of_units)
+
+    # Save customer transaction
     new_transaction = CustomerTransaction(
         customer_id=customer_id,
         transaction_type=transaction.transaction_type,
@@ -178,7 +224,6 @@ def add_customer_transaction(
     db.refresh(new_transaction)
 
     return new_transaction
-
 
 @app.get(
     "/customers/{customer_id}/transactions",
