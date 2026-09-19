@@ -120,83 +120,57 @@ def delete_customer(customer_id: int,db: Session = Depends(get_db)):
 
 
 @app.post(
-    "/customers/{customer_id}/transactions",
-    response_model=CustomerTransactionResponse
-)
-def add_customer_transaction(
-    customer_id: int,
-    transaction: CustomerTransactionCreate,
-    db: Session = Depends(get_db)
-):
-    customer = db.query(Customer).filter(
-        Customer.id == customer_id
-    ).first()
-
+    "/customers/{customer_id}/transactions",response_model=CustomerTransactionResponse)
+def add_customer_transaction(customer_id: int,transaction: CustomerTransactionCreate,db: Session = Depends(get_db)):
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
         raise HTTPException(
             status_code=404,
-            detail="Customer not found"
-        )
-
+            detail="Customer not found")
+    
     if transaction.transaction_type not in [
         "purchase",
-        "payment"
-    ]:
+        "payment"]:
         raise HTTPException(
             status_code=400,
-            detail="Transaction type must be purchase or payment"
-        )
+            detail="Transaction type must be purchase or payment")
 
-    # Calculate amount
     if transaction.amount is not None:
         amount = transaction.amount
 
     elif (
         transaction.no_of_units is not None
-        and transaction.per_unit_price is not None
-    ):
+        and transaction.per_unit_price is not None):
         amount = round(
-            transaction.no_of_units * transaction.per_unit_price,
-            2
-        )
+            transaction.no_of_units * transaction.per_unit_price,2)
 
     else:
         raise HTTPException(
             status_code=400,
-            detail="Must provide either 'amount' or both 'no_of_units' and 'per_unit_price'"
-        )
+            detail="Must provide either 'amount' or both 'no_of_units' and 'per_unit_price'")
 
     if amount <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Amount must be greater than zero"
-        )
+            detail="Amount must be greater than zero")
 
-    # Only customer purchase affects inventory
     if transaction.transaction_type == "purchase":
-
         if not transaction.product_name:
             raise HTTPException(
                 status_code=400,
-                detail="Product name is required for purchase"
-            )
+                detail="Product name is required for purchase")
 
         if not transaction.no_of_units or transaction.no_of_units <= 0:
             raise HTTPException(
                 status_code=400,
-                detail="Quantity must be greater than zero"
-            )
+                detail="Quantity must be greater than zero")
 
-        # Find product in inventory
-        item = db.query(Inventory).filter(
-            Inventory.product_name == transaction.product_name
-        ).first()
+        item = db.query(Inventory).filter(Inventory.product_name == transaction.product_name).first()
 
         if not item:
             raise HTTPException(
                 status_code=404,
-                detail="Product not found in inventory"
-            )
+                detail="Product not found in inventory")
 
         # Check available stock
         if item.quantity < transaction.no_of_units:
