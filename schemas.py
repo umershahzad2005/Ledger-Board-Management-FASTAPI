@@ -11,7 +11,43 @@ class CustomerResponse(BaseModel):
     id: int
     name: str
     phone: str
-    address: str
+    address: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerDetailResponse(BaseModel):
+    id: int
+    name: str
+    phone: str
+    address: Optional[str] = None
+    total_purchase: float
+    total_paid: float
+    remaining_amount: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerTransactionCreate(BaseModel):
+    transaction_type: str
+    product_name: Optional[str] = None
+    no_of_units: Optional[float] = None
+    per_unit_price: Optional[float] = None
+    amount: Optional[float] = None
+    description: Optional[str] = None
+
+
+class CustomerTransactionResponse(BaseModel):
+    id: int
+    customer_id: int
+    transaction_type: str
+    product_name: Optional[str] = None
+    no_of_units: Optional[float] = None
+    per_unit_price: Optional[float] = None
+    amount: float
+    description: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
       
 class VendorCreate(BaseModel):
     name: str
@@ -91,3 +127,63 @@ class InventoryResponse(BaseModel):
     purchase_price: float
     selling_price: float
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Report Schemas ---
+class VendorSummaryItem(BaseModel):
+    id: int
+    name: str
+    vendor_role: str
+    total_purchase: float
+    total_paid: float
+    balance: float
+
+
+class VendorReportResponse(BaseModel):
+    total_purchased: float
+    total_paid: float
+    total_balance: float
+    vendors: list[VendorSummaryItem]
+
+
+class CustomerSummaryItem(BaseModel):
+    id: int
+    name: str
+    phone: str
+    total_purchase: float
+    total_paid: float
+    balance: float
+
+
+class CustomerReportResponse(BaseModel):
+    total_purchased: float
+    total_paid: float
+    total_balance: float
+    customers: list[CustomerSummaryItem]
+
+
+class InventoryItemReport(BaseModel):
+    id: int
+    product_name: str
+    quantity: int
+    purchase_price: float
+    selling_price: float
+    total_purchase_cost: float
+    total_selling_value: float
+    projected_profit: float
+
+
+class InventoryReportResponse(BaseModel):
+    total_products: int
+    total_quantity: int
+    total_purchase_value: float
+    total_selling_value: float
+    projected_profit: float
+    items: list[InventoryItemReport]
+
+
+class OverallReportResponse(BaseModel):
+    vendors: dict
+    customers: dict
+    inventory: dict
+    net_receivable_payable_balance: float
