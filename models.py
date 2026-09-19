@@ -1,14 +1,3 @@
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.orm import relationship
-from datetime import datetime
-from database import Base
-
-class Customer(Base):
-    __tablename__ = "customers"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    address = Column(String, nullable=True)
 from sqlalchemy import (
     Column,
     Integer,
@@ -18,6 +7,66 @@ from sqlalchemy import (
     Boolean,
     ForeignKey
 )
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from database import Base
+
+class Customer(Base):
+    __tablename__ = "customers"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    phone = Column(String, nullable=False)
+    address = Column(String, nullable=True)
+
+    transactions = relationship(
+        "CustomerTransaction",
+        back_populates="customer",
+        cascade="all, delete-orphan"
+    )
+
+
+class CustomerTransaction(Base):
+    __tablename__ = "customer_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    customer_id = Column(
+        Integer,
+        ForeignKey("customers.id"),
+        nullable=False
+    )
+
+    transaction_type = Column(
+        String,
+        nullable=False
+    )
+
+    product_name = Column(
+        String,
+        nullable=True
+    )
+
+    no_of_units = Column(
+        Float,
+        nullable=True
+    )
+
+    per_unit_price = Column(
+        Float,
+        nullable=True
+    )
+
+    amount = Column(
+        Float,
+        nullable=False
+    )
+
+    description = Column(String, nullable=True)
+
+    customer = relationship(
+        "Customer",
+        back_populates="transactions"
+    )
 
 class User(Base):
     __tablename__ = "users"
