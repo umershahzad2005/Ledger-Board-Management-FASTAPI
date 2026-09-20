@@ -26,7 +26,9 @@ from schemas import (
     CustomerSummaryItem,
     InventoryReportResponse,
     InventoryItemReport,
-    OverallReportResponse
+    OverallReportResponse,
+    CustomerLedgerResponse,
+    VendorLedgerResponse
 )
 from auth import (
     hash_password,
@@ -39,6 +41,90 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="Ledger Board - Vendor Management API"
 )
+@app.get("/")
+def home():
+    return {
+        "message": "Ledger Board Vendor Management API"
+    }
+
+@app.post(
+    "/register",
+    response_model=UserResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Authentication"]
+)
+def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+
+    role = user_data.role if user_data.role in ["admin", "user"] else "user"
+
+    new_user = User(
+        name=user_data.name,
+        email=user_data.email,
+        hashed_password=hash_password(user_data.password),
+        role=role
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+
+
+@app.post(
+    "/login",
+    response_model=Token,
+    tags=["Authentication"]
+)
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db)
+):
+    """
+    Login endpoint — supports Swagger Authorize button directly.
+    In the 'username' field, enter your **email address**.
+    Leave client_id and client_secret blank.
+    """
+    # OAuth2PasswordRequestForm uses 'username' field — we treat it as email
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is inactive"
+        )
+
+    access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "user_id": user.id}
+    )
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "role": user.role
+    }
+
+
+@app.get(
+    "/admin/users",
+    response_model=list[UserResponse],
+    tags=["Admin"]
+)
+def get_all_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    return db.query(User).all()
 
 @app.post("/customers", response_model=CustomerResponse)
 def create_customer(
@@ -218,91 +304,36 @@ def get_customer_transactions(
         )
 
     return customer.transactions
-@app.get("/")
-def home():
+
+@app.get("/customers/{customer_id}/ledger",response_model=CustomerLedgerResponse)
+def get_customer_ledger(customer_id: int,db: Session = Depends(get_db)):
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found"
+        )
+    total_purchase = 0.0
+    total_paid = 0.0
+    for transaction in customer.transactions:
+        if transaction.transaction_type == "purchase":
+            total_purchase += transaction.amount
+
+        elif transaction.transaction_type == "payment":
+            total_paid += transaction.amount
+
+    remaining_amount = round(total_purchase - total_paid,2)
+
     return {
-        "message": "Ledger Board Vendor Management API"
+        "customer_id": customer.id,
+        "customer_name": customer.name,
+        "phone": customer.phone,
+        "total_purchase": round(total_purchase, 2),
+        "total_paid": round(total_paid, 2),
+        "remaining_amount": remaining_amount,
+        "transactions": customer.transactions
     }
-
-@app.post(
-    "/register",
-    response_model=UserResponse,
-    status_code=status.HTTP_201_CREATED,
-    tags=["Authentication"]
-)
-def register(user_data: UserRegister, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-
-    role = user_data.role if user_data.role in ["admin", "user"] else "user"
-
-    new_user = User(
-        name=user_data.name,
-        email=user_data.email,
-        hashed_password=hash_password(user_data.password),
-        role=role
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
-
-
-
-@app.post(
-    "/login",
-    response_model=Token,
-    tags=["Authentication"]
-)
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
-):
-    """
-    Login endpoint — supports Swagger Authorize button directly.
-    In the 'username' field, enter your **email address**.
-    Leave client_id and client_secret blank.
-    """
-    # OAuth2PasswordRequestForm uses 'username' field — we treat it as email
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive"
-        )
-
-    access_token = create_access_token(
-        data={"sub": user.email, "role": user.role, "user_id": user.id}
-    )
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "role": user.role
-    }
-
-
-@app.get(
-    "/admin/users",
-    response_model=list[UserResponse],
-    tags=["Admin"]
-)
-def get_all_users(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
-):
-    return db.query(User).all()
-
 
 @app.post(
     "/vendors",
@@ -524,6 +555,34 @@ def get_vendor_transactions(
 
     return transactions
 
+@app.get("/vendors/{vendor_id}/ledger",response_model=VendorLedgerResponse)
+def get_vendor_ledger(vendor_id: int,db: Session = Depends(get_db)):
+    vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+
+    if not vendor:
+        raise HTTPException(
+            status_code=404,
+            detail="Vendor not found")
+    total_purchase = 0.0
+    total_paid = 0.0
+
+    for transaction in vendor.transactions:
+        if transaction.transaction_type == "purchase":
+            total_purchase += transaction.amount
+        elif transaction.transaction_type == "payment":
+            total_paid += transaction.amount
+
+    remaining_amount = round(total_purchase - total_paid,2)
+
+    return {
+        "vendor_id": vendor.id,
+        "vendor_name": vendor.name,
+        "contact_number": vendor.contact_number,
+        "total_purchase": round(total_purchase, 2),
+        "total_paid": round(total_paid, 2),
+        "remaining_amount": remaining_amount,
+        "transactions": vendor.transactions
+    }
     
 @app.get("/inventory", response_model=list[InventoryResponse])
 def get_inventory(

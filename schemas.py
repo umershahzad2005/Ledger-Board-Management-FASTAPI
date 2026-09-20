@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
-from typing import Optional, Literal
+from typing import Optional, Literal ,List
 
 class CustomerCreate(BaseModel):
     name: str
@@ -145,7 +145,6 @@ class VendorReportResponse(BaseModel):
     total_balance: float
     vendors: list[VendorSummaryItem]
 
-
 class CustomerSummaryItem(BaseModel):
     id: int
     name: str
@@ -154,13 +153,11 @@ class CustomerSummaryItem(BaseModel):
     total_paid: float
     balance: float
 
-
 class CustomerReportResponse(BaseModel):
     total_purchased: float
     total_paid: float
     total_balance: float
     customers: list[CustomerSummaryItem]
-
 
 class InventoryItemReport(BaseModel):
     id: int
@@ -172,7 +169,6 @@ class InventoryItemReport(BaseModel):
     total_selling_value: float
     projected_profit: float
 
-
 class InventoryReportResponse(BaseModel):
     total_products: int
     total_quantity: int
@@ -181,9 +177,37 @@ class InventoryReportResponse(BaseModel):
     projected_profit: float
     items: list[InventoryItemReport]
 
-
 class OverallReportResponse(BaseModel):
     vendors: dict
     customers: dict
     inventory: dict
     net_receivable_payable_balance: float
+
+class LedgerTransactionResponse(BaseModel):
+    id: int
+    transaction_type: str
+    product_name: Optional[str] = None
+    no_of_units: Optional[int] = None
+    per_unit_price: Optional[float] = None
+    amount: float
+    description: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class CustomerLedgerResponse(BaseModel):
+    customer_id: int
+    customer_name: str
+    phone: Optional[str] = None
+    total_purchase: float
+    total_paid: float
+    remaining_amount: float
+    transactions: List[LedgerTransactionResponse]
+
+class VendorLedgerResponse(BaseModel):
+    vendor_id: int
+    vendor_name: str
+    contact_number: Optional[str] = None
+    total_purchase: float
+    total_paid: float
+    remaining_amount: float
+    transactions: List[LedgerTransactionResponse]
