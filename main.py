@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.routing import APIRoute
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from database import get_db, Base, engine
+from database import get_db, Base, engine, SessionLocal
 from models import Customer, CustomerTransaction, Vendor, VendorTransaction, User, Inventory
 from schemas import (
     CustomerCreate,
@@ -17,7 +17,7 @@ from schemas import (
     VendorResponse,
     VendorTransactionCreate,
     VendorTransactionResponse,
-    UserRegister,
+    UserCreateByAdmin,
     UserResponse,
     Token,
     VendorReportResponse,
@@ -34,26 +34,57 @@ from auth import (
     hash_password,
     verify_password,
     create_access_token,
+    get_current_user,
     require_admin
 )
 Base.metadata.create_all(bind=engine)
 
+
+def seed_default_admin():
+    """Ensure the default admin account (admin@ledger.com / admin123) exists on startup."""
+    db = SessionLocal()
+    try:
+        admin = db.query(User).filter(User.email == "admin@ledger.com").first()
+        if not admin:
+            default_admin = User(
+                name="System Admin",
+                email="admin@ledger.com",
+                hashed_password=hash_password("admin123"),
+                role="admin",
+                is_active=True
+            )
+            db.add(default_admin)
+            db.commit()
+    finally:
+        db.close()
+
+
+seed_default_admin()
+
 app = FastAPI(
     title="Ledger Board - Vendor Management API"
 )
+
+
 @app.get("/")
 def home():
     return {
         "message": "Ledger Board Vendor Management API"
     }
 
+
 @app.post(
-    "/register",
+    "/admin/create-user",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
-    tags=["Authentication"]
+    tags=["Admin"]
 )
-def register(user_data: UserRegister, db: Session = Depends(get_db)):
+def create_user_by_admin(
+    user_data: UserCreateByAdmin,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Admin-only endpoint to create new user credentials with admin or user role."""
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
@@ -67,7 +98,8 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
         name=user_data.name,
         email=user_data.email,
         hashed_password=hash_password(user_data.password),
-        role=role
+        role=role,
+        is_active=True
     )
     db.add(new_user)
     db.commit()
@@ -126,7 +158,7 @@ def get_all_users(
 ):
     return db.query(User).all()
 
-@app.post("/customers", response_model=CustomerResponse)
+@app.post("/customers", response_model=CustomerResponse, dependencies=[Depends(get_current_user)])
 def create_customer(
     customer: CustomerCreate,
     db: Session = Depends(get_db)):
@@ -140,12 +172,12 @@ def create_customer(
     db.refresh(new_customer)
     return new_customer
 
-@app.get("/customers", response_model=list[CustomerResponse])
+@app.get("/customers", response_model=list[CustomerResponse], dependencies=[Depends(get_current_user)])
 def get_customers(
     db: Session = Depends(get_db)):
     return db.query(Customer).all()
 
-@app.get("/customers/{customer_id}", response_model=CustomerDetailResponse)
+@app.get("/customers/{customer_id}", response_model=CustomerDetailResponse, dependencies=[Depends(get_current_user)])
 def get_customer(
     customer_id: int,
     db: Session = Depends(get_db)):
@@ -177,7 +209,7 @@ def get_customer(
         "remaining_amount": remaining_amount
     }
 
-@app.put("/customers/{customer_id}", response_model=CustomerResponse)
+@app.put("/customers/{customer_id}", response_model=CustomerResponse, dependencies=[Depends(get_current_user)])
 def update_customer(customer_id: int,customer: CustomerCreate,db: Session = Depends(get_db)):
     existing_customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not existing_customer:
@@ -189,7 +221,7 @@ def update_customer(customer_id: int,customer: CustomerCreate,db: Session = Depe
     db.refresh(existing_customer)
     return existing_customer
 
-@app.delete("/customers/{customer_id}")
+@app.delete("/customers/{customer_id}", dependencies=[Depends(get_current_user)])
 def delete_customer(customer_id: int,db: Session = Depends(get_db)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
 
@@ -206,7 +238,10 @@ def delete_customer(customer_id: int,db: Session = Depends(get_db)):
 
 
 @app.post(
-    "/customers/{customer_id}/transactions",response_model=CustomerTransactionResponse)
+    "/customers/{customer_id}/transactions",
+    response_model=CustomerTransactionResponse,
+    dependencies=[Depends(get_current_user)]
+)
 def add_customer_transaction(customer_id: int,transaction: CustomerTransactionCreate,db: Session = Depends(get_db)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
@@ -287,7 +322,8 @@ def add_customer_transaction(customer_id: int,transaction: CustomerTransactionCr
 
 @app.get(
     "/customers/{customer_id}/transactions",
-    response_model=list[CustomerTransactionResponse]
+    response_model=list[CustomerTransactionResponse],
+    dependencies=[Depends(get_current_user)]
 )
 def get_customer_transactions(
     customer_id: int,
@@ -305,7 +341,7 @@ def get_customer_transactions(
 
     return customer.transactions
 
-@app.get("/customers/{customer_id}/ledger",response_model=CustomerLedgerResponse)
+@app.get("/customers/{customer_id}/ledger",response_model=CustomerLedgerResponse, dependencies=[Depends(get_current_user)])
 def get_customer_ledger(customer_id: int,db: Session = Depends(get_db)):
     customer = db.query(Customer).filter(Customer.id == customer_id).first()
 
@@ -337,7 +373,8 @@ def get_customer_ledger(customer_id: int,db: Session = Depends(get_db)):
 
 @app.post(
     "/vendors",
-    response_model=VendorResponse
+    response_model=VendorResponse,
+    dependencies=[Depends(get_current_user)]
 )
 def create_vendor(
     vendor: VendorCreate,
@@ -358,7 +395,7 @@ def create_vendor(
 
 
 
-@app.get("/vendors",response_model=list[VendorResponse])
+@app.get("/vendors",response_model=list[VendorResponse], dependencies=[Depends(get_current_user)])
 def get_all_vendors(db: Session = Depends(get_db)):
 
     vendors = db.query(Vendor).all()
@@ -366,7 +403,7 @@ def get_all_vendors(db: Session = Depends(get_db)):
     return vendors
 
 
-@app.get("/vendor/{vendor_id}")
+@app.get("/vendor/{vendor_id}", dependencies=[Depends(get_current_user)])
 def get_vendor(vendor_id: int,db: Session = Depends(get_db)):
 
     vendor = db.query(Vendor).filter(
@@ -406,7 +443,8 @@ def get_vendor(vendor_id: int,db: Session = Depends(get_db)):
 
 @app.put(
     "/vendor/{vendor_id}",
-    response_model=VendorResponse
+    response_model=VendorResponse,
+    dependencies=[Depends(get_current_user)]
 )
 def update_vendor(
     vendor_id: int,
@@ -440,7 +478,8 @@ def update_vendor(
 
 
 @app.delete(
-    "/vendor/{vendor_id}"
+    "/vendor/{vendor_id}",
+    dependencies=[Depends(get_current_user)]
 )
 def delete_vendor(
     vendor_id: int,
@@ -468,7 +507,8 @@ def delete_vendor(
 
 @app.post(
     "/vendor/{vendor_id}/transactions",
-    response_model=VendorTransactionResponse
+    response_model=VendorTransactionResponse,
+    dependencies=[Depends(get_current_user)]
 )
 def add_vendor_transaction(
     vendor_id: int,
@@ -530,7 +570,8 @@ def add_vendor_transaction(
 
 @app.get(
     "/vendor/{vendor_id}/transactions",
-    response_model=list[VendorTransactionResponse]
+    response_model=list[VendorTransactionResponse],
+    dependencies=[Depends(get_current_user)]
 )
 def get_vendor_transactions(
     vendor_id: int,
@@ -555,7 +596,7 @@ def get_vendor_transactions(
 
     return transactions
 
-@app.get("/vendors/{vendor_id}/ledger",response_model=VendorLedgerResponse)
+@app.get("/vendors/{vendor_id}/ledger",response_model=VendorLedgerResponse, dependencies=[Depends(get_current_user)])
 def get_vendor_ledger(vendor_id: int,db: Session = Depends(get_db)):
     vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
 
@@ -584,12 +625,12 @@ def get_vendor_ledger(vendor_id: int,db: Session = Depends(get_db)):
         "transactions": vendor.transactions
     }
     
-@app.get("/inventory", response_model=list[InventoryResponse])
+@app.get("/inventory", response_model=list[InventoryResponse], dependencies=[Depends(get_current_user)])
 def get_inventory(
     db: Session = Depends(get_db)):
     return db.query(Inventory).all()
 
-@app.get("/inventory/{item_id}", response_model=InventoryResponse)
+@app.get("/inventory/{item_id}", response_model=InventoryResponse, dependencies=[Depends(get_current_user)])
 def get_inventory_item(
     item_id: int,
     db: Session = Depends(get_db)):
@@ -601,7 +642,7 @@ def get_inventory_item(
             detail="Inventory item not found")
     return item
 
-@app.post("/inventory", response_model=InventoryResponse)
+@app.post("/inventory", response_model=InventoryResponse, dependencies=[Depends(get_current_user)])
 def create_inventory_item(
     item: InventoryCreate,
     db: Session = Depends(get_db)):
@@ -618,7 +659,7 @@ def create_inventory_item(
     return new_item
 
 
-@app.get("/inventory/transaction/{transaction_id}",response_model=InventoryResponse)
+@app.get("/inventory/transaction/{transaction_id}",response_model=InventoryResponse, dependencies=[Depends(get_current_user)])
 def add_transaction_to_inventory(
     transaction_id: int,
     db: Session = Depends(get_db)):
@@ -664,7 +705,7 @@ def add_transaction_to_inventory(
     db.refresh(item)
     return item
         
-@app.put("/inventory/{item_id}", response_model=InventoryResponse)
+@app.put("/inventory/{item_id}", response_model=InventoryResponse, dependencies=[Depends(get_current_user)])
 def update_inventory_item(item_id: int,item_data: InventoryCreate,
     db: Session = Depends(get_db)):
     item = db.query(Inventory).filter(Inventory.id == item_id).first()
@@ -682,7 +723,7 @@ def update_inventory_item(item_id: int,item_data: InventoryCreate,
     db.refresh(item)
     return item
 
-@app.delete("/inventory/{item_id}")
+@app.delete("/inventory/{item_id}", dependencies=[Depends(get_current_user)])
 def delete_inventory_item(item_id: int,db: Session = Depends(get_db)):
     item = db.query(Inventory).filter(Inventory.id == item_id).first()
 
@@ -701,7 +742,8 @@ def delete_inventory_item(item_id: int,db: Session = Depends(get_db)):
 @app.get(
     "/reports/summary",
     response_model=OverallReportResponse,
-    tags=["Reports"]
+    tags=["Reports"],
+    dependencies=[Depends(get_current_user)]
 )
 def get_overall_summary_report(db: Session = Depends(get_db)):
     v_transactions = db.query(VendorTransaction).all()
@@ -746,7 +788,8 @@ def get_overall_summary_report(db: Session = Depends(get_db)):
 @app.get(
     "/reports/vendors",
     response_model=VendorReportResponse,
-    tags=["Reports"]
+    tags=["Reports"],
+    dependencies=[Depends(get_current_user)]
 )
 def get_vendor_report(db: Session = Depends(get_db)):
     vendors = db.query(Vendor).all()
@@ -782,7 +825,8 @@ def get_vendor_report(db: Session = Depends(get_db)):
 @app.get(
     "/reports/customers",
     response_model=CustomerReportResponse,
-    tags=["Reports"]
+    tags=["Reports"],
+    dependencies=[Depends(get_current_user)]
 )
 def get_customer_report(db: Session = Depends(get_db)):
     customers = db.query(Customer).all()
@@ -818,7 +862,8 @@ def get_customer_report(db: Session = Depends(get_db)):
 @app.get(
     "/reports/inventory",
     response_model=InventoryReportResponse,
-    tags=["Reports"]
+    tags=["Reports"],
+    dependencies=[Depends(get_current_user)]
 )
 def get_inventory_report(db: Session = Depends(get_db)):
     inventory_items = db.query(Inventory).all()

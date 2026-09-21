@@ -156,74 +156,91 @@ Once the server is running, open your web browser to test and explore the API:
 
 ## 🔐 How to Authenticate in Swagger UI
 
+By default, **ALL business APIs are locked 🔒** and require authentication. Only `/login` and `/` are open.
+
+### 1. Default Admin Credentials (Auto-Seeded)
+On server startup, a default administrator account is automatically created:
+* **Email:** `admin@ledger.com`
+* **Password:** `admin123`
+* **Role:** `admin`
+
+### 2. Unlocking APIs in Swagger UI:
 1. Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
-2. First, register an admin or user under `POST /register`:
+2. Notice that every API endpoint under **Customers**, **Vendors**, **Inventory**, **Reports**, and **Admin** displays a 🔒 lock icon.
+3. Click the green **Authorize** 🔒 button at the top right of Swagger UI.
+4. Enter:
+   * **`username`**: `admin@ledger.com`
+   * **`password`**: `admin123`
+   * *(Leave `client_id` and `client_secret` blank)*
+5. Click **Authorize** → **Close**.
+6. All locked APIs are now unlocked and ready to execute!
+
+### 3. Creating New User Credentials (Admin Only):
+Public self-registration is disabled. To add a new user account:
+1. Authorize as Admin.
+2. Call `POST /admin/create-user`:
    ```json
    {
-     "name": "Admin User",
-     "email": "admin@example.com",
-     "password": "adminsecret123",
-     "role": "admin"
+     "name": "Staff Member",
+     "email": "staff@ledger.com",
+     "password": "staffpassword123",
+     "role": "user"
    }
    ```
-3. Click the green **Authorize** 🔒 button at the top right of the Swagger page.
-4. Fill in:
-   * **`username`**: Enter your registered email (e.g., `admin@example.com`)
-   * **`password`**: Enter your password (e.g., `adminsecret123`)
-   * *(Leave `client_id` and `client_secret` blank)*
-5. Click **Authorize** and then **Close**.
-6. The lock icon is now closed! All protected requests (such as `GET /admin/users`) will automatically include your Bearer token.
+3. That user can now log in via `/login` and access all customer, vendor, inventory, and report endpoints.
 
 ---
 
 ## 🗂️ Complete API Reference
 
-### 1. Authentication
+### 1. Authentication & User Management
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/register` | Public | Create a new user account with `admin` or `user` role |
-| `POST` | `/login` | Public | Authenticate via email & password and receive JWT token |
-| `GET` | `/admin/users` | **Admin Only** | List all registered system users |
+| `POST` | `/login` | **Public** | Authenticate via email & password and receive JWT Bearer token |
+| `POST` | `/admin/create-user` | **Admin Only** 🔒 | Create new login credentials for other admins or staff |
+| `GET` | `/admin/users` | **Admin Only** 🔒 | List all registered user accounts |
 
 ### 2. Customers & Customer Ledger
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/customers` | Public | Create a new customer profile |
-| `GET` | `/customers` | Public | List all customers |
-| `GET` | `/customers/{id}` | Public | Get customer details with real-time balance calculation |
-| `PUT` | `/customers/{id}` | Public | Update customer information |
-| `DELETE` | `/customers/{id}` | Public | Delete a customer and their transaction history |
-| `POST` | `/customers/{id}/transactions` | Public | Record customer purchase or payment |
-| `GET` | `/customers/{id}/transactions` | Public | List all transactions for a specific customer |
+| `POST` | `/customers` | **Authenticated** 🔒 | Create a new customer profile |
+| `GET` | `/customers` | **Authenticated** 🔒 | List all customers |
+| `GET` | `/customers/{id}` | **Authenticated** 🔒 | Get customer details with real-time balance calculation |
+| `PUT` | `/customers/{id}` | **Authenticated** 🔒 | Update customer information |
+| `DELETE` | `/customers/{id}` | **Authenticated** 🔒 | Delete a customer and their transaction history |
+| `POST` | `/customers/{id}/transactions` | **Authenticated** 🔒 | Record customer purchase or payment (auto-deducts inventory) |
+| `GET` | `/customers/{id}/transactions` | **Authenticated** 🔒 | List all transactions for a specific customer |
+| `GET` | `/customers/{id}/ledger` | **Authenticated** 🔒 | Full customer ledger statement with running balances |
 
 ### 3. Vendors & Vendor Ledger
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/vendors` | Public | Create a new vendor with role and contact number |
-| `GET` | `/vendors` | Public | List all vendors |
-| `GET` | `/vendor/{id}` | Public | Get vendor details with real-time balance calculation |
-| `PUT` | `/vendor/{id}` | Public | Update vendor details |
-| `DELETE` | `/vendor/{id}` | Public | Delete a vendor and their transaction history |
-| `POST` | `/vendor/{id}/transactions` | Public | Record vendor purchase or payment |
-| `GET` | `/vendor/{id}/transactions` | Public | List all transactions for a specific vendor |
+| `POST` | `/vendors` | **Authenticated** 🔒 | Create a new vendor with role and contact number |
+| `GET` | `/vendors` | **Authenticated** 🔒 | List all vendors |
+| `GET` | `/vendor/{id}` | **Authenticated** 🔒 | Get vendor details with real-time balance calculation |
+| `PUT` | `/vendor/{id}` | **Authenticated** 🔒 | Update vendor details |
+| `DELETE` | `/vendor/{id}` | **Authenticated** 🔒 | Delete a vendor and their transaction history |
+| `POST` | `/vendor/{id}/transactions` | **Authenticated** 🔒 | Record vendor purchase or payment |
+| `GET` | `/vendor/{id}/transactions` | **Authenticated** 🔒 | List all transactions for a specific vendor |
+| `GET` | `/vendors/{id}/ledger` | **Authenticated** 🔒 | Full vendor ledger statement with running balances |
 
 ### 4. Inventory
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/inventory` | Public | List all stock items |
-| `GET` | `/inventory/{id}` | Public | Get single inventory item details |
-| `POST` | `/inventory` | Public | Add new product to inventory manually |
-| `PUT` | `/inventory/{id}` | Public | Update inventory item pricing or stock count |
-| `DELETE` | `/inventory/{id}` | Public | Remove item from inventory |
-| `GET` | `/inventory/transaction/{transaction_id}` | Public | Auto-add/update inventory stock directly from a vendor purchase |
+| `GET` | `/inventory` | **Authenticated** 🔒 | List all stock items |
+| `GET` | `/inventory/{id}` | **Authenticated** 🔒 | Get single inventory item details |
+| `POST` | `/inventory` | **Authenticated** 🔒 | Add new product to inventory manually |
+| `PUT` | `/inventory/{id}` | **Authenticated** 🔒 | Update inventory item pricing or stock count |
+| `DELETE` | `/inventory/{id}` | **Authenticated** 🔒 | Remove item from inventory |
+| `GET` | `/inventory/transaction/{transaction_id}` | **Authenticated** 🔒 | Auto-add/update inventory stock directly from a vendor purchase |
 
 ### 5. Financial Reports
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/reports/summary` | Public | Executive dashboard: Vendor, Customer & Inventory summary |
-| `GET` | `/reports/vendors` | Public | Total purchases, payments, and payable balances for all vendors |
-| `GET` | `/reports/customers` | Public | Total sales, collections, and receivable balances for all customers |
-| `GET` | `/reports/inventory` | Public | Stock quantities, inventory cost value, sales value, and projected profit |
+| `GET` | `/reports/summary` | **Authenticated** 🔒 | Executive dashboard: Vendor, Customer & Inventory summary |
+| `GET` | `/reports/vendors` | **Authenticated** 🔒 | Total purchases, payments, and payable balances for all vendors |
+| `GET` | `/reports/customers` | **Authenticated** 🔒 | Total sales, collections, and receivable balances for all customers |
+| `GET` | `/reports/inventory` | **Authenticated** 🔒 | Stock quantities, inventory cost value, sales value, and projected profit |
 
 ---
 

@@ -92,7 +92,7 @@ class VendorTransactionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserRegister(BaseModel):
+class UserCreateByAdmin(BaseModel):
     name: str
     email: str
     password: str

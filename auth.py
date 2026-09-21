@@ -15,7 +15,7 @@ SECRET_KEY = os.getenv("SECRET_KEY", "ledger-secret-key-change-in-production-202
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=True)
 
 
 def hash_password(password: str) -> str:
