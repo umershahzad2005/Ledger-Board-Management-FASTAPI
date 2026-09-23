@@ -62,6 +62,8 @@ class CustomerTransaction(Base):
     )
 
     description = Column(String, nullable=True)
+    payment_method = Column(String, nullable=True)
+    payment_reference = Column(String, nullable=True)
 
     customer = relationship(
         "Customer",
@@ -136,6 +138,8 @@ class VendorTransaction(Base):
     )
 
     description = Column(String, nullable=True)
+    payment_method = Column(String, nullable=True)
+    payment_reference = Column(String, nullable=True)
 
 
     vendor = relationship(
