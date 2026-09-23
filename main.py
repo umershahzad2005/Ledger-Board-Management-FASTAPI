@@ -9,7 +9,10 @@ from schemas import (
     CustomerCreate,
     CustomerResponse,
     CustomerDetailResponse,
-    CustomerTransactionCreate,
+    CustomerPurchaseCreate,
+    CustomerPurchaseResponse,
+    CustomerPaymentCreate,
+    CustomerPaymentResponse,
     CustomerTransactionResponse,
     InventoryCreate,
     InventoryResponse,
@@ -251,138 +254,122 @@ def delete_customer(customer_id: int,db: Session = Depends(get_db)):
     }
 
 
+
 @app.post(
-    "/customers/{customer_id}/transactions",
-    response_model=CustomerTransactionResponse,
+    "/customers/{customer_id}/purchase",
+    response_model=CustomerPurchaseResponse,
     dependencies=[Depends(get_current_user)]
 )
-def add_customer_transaction(
+def add_customer_purchase(
     customer_id: int,
-    transaction: CustomerTransactionCreate,
+    purchase: CustomerPurchaseCreate,
     db: Session = Depends(get_db)
 ):
-    customer = db.query(Customer).filter(
-        Customer.id == customer_id
-    ).first()
-
+    """
+    Record a purchase sold to a customer.
+    Amount is automatically calculated as: no_of_units * per_unit_price.
+    Deducts stock from inventory automatically.
+    """
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
     if not customer:
-        raise HTTPException(
-            status_code=404,
-            detail="Customer not found"
-        )
+        raise HTTPException(status_code=404, detail="Customer not found")
 
-    # Only purchase transaction
-    if transaction.transaction_type != "purchase":
-        raise HTTPException(
-            status_code=400,
-            detail="Transaction type must be purchase"
-        )
+    if purchase.no_of_units <= 0:
+        raise HTTPException(status_code=400, detail="Number of units must be greater than zero")
 
-    # Payment method is required
-    if transaction.payment_method not in ["cash", "card", "loan"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Payment method must be cash, card or loan"
-        )
-
-    # Calculate amount
-    if transaction.amount is not None:
-        amount = transaction.amount
-
-    elif (
-        transaction.no_of_units is not None
-        and transaction.per_unit_price is not None
-    ):
-        amount = round(
-            transaction.no_of_units * transaction.per_unit_price,
-            2
-        )
-
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="Must provide either 'amount' or both "
-                   "'no_of_units' and 'per_unit_price'"
-        )
-
-    if amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Amount must be greater than zero"
-        )
-
-    # Purchase details
-    if not transaction.product_name:
-        raise HTTPException(
-            status_code=400,
-            detail="Product name is required for purchase"
-        )
-
-    if not transaction.no_of_units or transaction.no_of_units <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Quantity must be greater than zero"
-        )
+    if purchase.per_unit_price <= 0:
+        raise HTTPException(status_code=400, detail="Per unit price must be greater than zero")
 
     # Find product in inventory
     item = db.query(Inventory).filter(
-        Inventory.product_name == transaction.product_name
+        Inventory.product_name == purchase.product_name
     ).first()
 
     if not item:
-        raise HTTPException(
-            status_code=404,
-            detail="Product not found in inventory"
-        )
+        raise HTTPException(status_code=404, detail="Product not found in inventory")
 
-    # Check stock
-    if item.quantity < transaction.no_of_units:
+    if item.quantity < purchase.no_of_units:
         raise HTTPException(
             status_code=400,
             detail=f"Not enough stock. Available quantity: {item.quantity}"
         )
 
-    # Reduce inventory
-    item.quantity -= int(transaction.no_of_units)
+    amount = round(purchase.no_of_units * purchase.per_unit_price, 2)
 
-    # Save customer transaction
+    # Reduce inventory
+    item.quantity -= int(purchase.no_of_units)
+
     new_transaction = CustomerTransaction(
         customer_id=customer_id,
         transaction_type="purchase",
-        product_name=transaction.product_name,
-        no_of_units=transaction.no_of_units,
-        per_unit_price=transaction.per_unit_price,
+        product_name=purchase.product_name,
+        no_of_units=purchase.no_of_units,
+        per_unit_price=purchase.per_unit_price,
         amount=amount,
-        payment_method=transaction.payment_method,
-        description=transaction.description
+        description=purchase.description
+    )
+
+    db.add(new_transaction)
+    db.commit()
+    db.refresh(new_transaction)
+    return new_transaction
+
+
+@app.post(
+    "/customers/{customer_id}/payment",
+    response_model=CustomerPaymentResponse,
+    dependencies=[Depends(get_current_user)]
+)
+def add_customer_payment(
+    customer_id: int,
+    payment: CustomerPaymentCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Record a payment received from a customer (cash, card, or loan).
+    Returns total_paid and remaining_amount after this payment.
+    """
+    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+
+    if payment.amount <= 0:
+        raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+
+    new_transaction = CustomerTransaction(
+        customer_id=customer_id,
+        transaction_type="payment",
+        amount=payment.amount,
+        payment_method=payment.payment_method,
+        payment_reference=payment.payment_reference,
+        description=payment.description
     )
 
     db.add(new_transaction)
     db.commit()
     db.refresh(new_transaction)
 
-    return new_transaction
+    # Calculate live totals after payment
+    transactions = db.query(CustomerTransaction).filter(
+        CustomerTransaction.customer_id == customer_id
+    ).all()
 
-@app.get(
-    "/customers/{customer_id}/transactions",
-    response_model=list[CustomerTransactionResponse],
-    dependencies=[Depends(get_current_user)]
-)
-def get_customer_transactions(
-    customer_id: int,
-    db: Session = Depends(get_db)
-):
-    customer = db.query(Customer).filter(
-        Customer.id == customer_id
-    ).first()
+    total_purchase = sum(t.amount for t in transactions if t.transaction_type == "purchase")
+    total_paid = sum(t.amount for t in transactions if t.transaction_type == "payment")
+    remaining_amount = round(total_purchase - total_paid, 2)
 
-    if not customer:
-        raise HTTPException(
-            status_code=404,
-            detail="Customer not found"
-        )
+    return {
+        "id": new_transaction.id,
+        "customer_id": new_transaction.customer_id,
+        "transaction_type": new_transaction.transaction_type,
+        "amount": new_transaction.amount,
+        "payment_method": new_transaction.payment_method,
+        "payment_reference": new_transaction.payment_reference,
+        "description": new_transaction.description,
+        "total_paid": round(total_paid, 2),
+        "remaining_amount": remaining_amount
+    }
 
-    return customer.transactions
 
 @app.get("/customers/{customer_id}/ledger",response_model=CustomerLedgerResponse, dependencies=[Depends(get_current_user)])
 def get_customer_ledger(customer_id: int,db: Session = Depends(get_db)):

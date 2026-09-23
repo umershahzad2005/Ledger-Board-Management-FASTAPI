@@ -37,7 +37,8 @@ class CustomerTransaction(Base):
     per_unit_price = Column(Float)
     amount = Column(Float)
 
-    payment_method = Column(String)   # <-- YE ADD KARO
+    payment_method = Column(String)
+    payment_reference = Column(String, nullable=True)
 
     description = Column(String)
 
