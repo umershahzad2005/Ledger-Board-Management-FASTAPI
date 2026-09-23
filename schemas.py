@@ -27,28 +27,62 @@ class CustomerDetailResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class CustomerTransactionCreate(BaseModel):
+class CustomerPurchaseCreate(BaseModel):
+    product_name: str
+    no_of_units: float
+    per_unit_price: float
+    description: Optional[str] = None
+
+
+class CustomerPaymentCreate(BaseModel):
+    amount: float
+    payment_method: Literal["cash", "card", "loan"]
+    payment_reference: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CustomerPurchaseResponse(BaseModel):
+    id: int
+    customer_id: int
     transaction_type: str
-    product_name: str | None = None
-    no_of_units: float | None = None
-    per_unit_price: float | None = None
-    amount: float | None = None
+    product_name: str
+    no_of_units: float
+    per_unit_price: float
+    amount: float
+    description: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CustomerPaymentResponse(BaseModel):
+    id: int
+    customer_id: int
+    transaction_type: str
+    amount: float
     payment_method: str
-    description: str | None = None
+    payment_reference: Optional[str] = None
+    description: Optional[str] = None
+    total_paid: float
+    remaining_amount: float
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class CustomerTransactionResponse(BaseModel):
     id: int
     customer_id: int
     transaction_type: str
-    product_name: str | None
-    no_of_units: float | None
-    per_unit_price: float | None
+    product_name: Optional[str] = None
+    no_of_units: Optional[float] = None
+    per_unit_price: Optional[float] = None
     amount: float
-    payment_method: str
-    description: str | None
-    class Config:
-        from_attributes = True
-      
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
+    description: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    
 class VendorCreate(BaseModel):
     name: str
     vendor_role: str
