@@ -256,77 +256,104 @@ def delete_customer(customer_id: int,db: Session = Depends(get_db)):
     response_model=CustomerTransactionResponse,
     dependencies=[Depends(get_current_user)]
 )
-def add_customer_transaction(customer_id: int,transaction: CustomerTransactionCreate,db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+def add_customer_transaction(
+    customer_id: int,
+    transaction: CustomerTransactionCreate,
+    db: Session = Depends(get_db)
+):
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id
+    ).first()
+
     if not customer:
         raise HTTPException(
             status_code=404,
-            detail="Customer not found")
-    
-    if transaction.transaction_type not in [
-        "purchase",
-        "payment"]:
+            detail="Customer not found"
+        )
+
+    # Only purchase transaction
+    if transaction.transaction_type != "purchase":
         raise HTTPException(
             status_code=400,
-            detail="Transaction type must be purchase or payment")
+            detail="Transaction type must be purchase"
+        )
 
+    # Payment method is required
+    if transaction.payment_method not in ["cash", "card", "loan"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment method must be cash, card or loan"
+        )
+
+    # Calculate amount
     if transaction.amount is not None:
         amount = transaction.amount
 
     elif (
         transaction.no_of_units is not None
-        and transaction.per_unit_price is not None):
+        and transaction.per_unit_price is not None
+    ):
         amount = round(
-            transaction.no_of_units * transaction.per_unit_price,2)
+            transaction.no_of_units * transaction.per_unit_price,
+            2
+        )
 
     else:
         raise HTTPException(
             status_code=400,
-            detail="Must provide either 'amount' or both 'no_of_units' and 'per_unit_price'")
+            detail="Must provide either 'amount' or both "
+                   "'no_of_units' and 'per_unit_price'"
+        )
 
     if amount <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Amount must be greater than zero")
+            detail="Amount must be greater than zero"
+        )
 
-    if transaction.transaction_type == "purchase":
-        if not transaction.product_name:
-            raise HTTPException(
-                status_code=400,
-                detail="Product name is required for purchase")
+    # Purchase details
+    if not transaction.product_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Product name is required for purchase"
+        )
 
-        if not transaction.no_of_units or transaction.no_of_units <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Quantity must be greater than zero")
+    if not transaction.no_of_units or transaction.no_of_units <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Quantity must be greater than zero"
+        )
 
-        item = db.query(Inventory).filter(Inventory.product_name == transaction.product_name).first()
+    # Find product in inventory
+    item = db.query(Inventory).filter(
+        Inventory.product_name == transaction.product_name
+    ).first()
 
-        if not item:
-            raise HTTPException(
-                status_code=404,
-                detail="Product not found in inventory")
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found in inventory"
+        )
 
-        # Check available stock
-        if item.quantity < transaction.no_of_units:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Not enough stock. Available quantity: {item.quantity}"
-            )
+    # Check stock
+    if item.quantity < transaction.no_of_units:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough stock. Available quantity: {item.quantity}"
+        )
 
-        # Reduce inventory
-        item.quantity -= int(transaction.no_of_units)
+    # Reduce inventory
+    item.quantity -= int(transaction.no_of_units)
 
     # Save customer transaction
     new_transaction = CustomerTransaction(
         customer_id=customer_id,
-        transaction_type=transaction.transaction_type,
+        transaction_type="purchase",
         product_name=transaction.product_name,
         no_of_units=transaction.no_of_units,
         per_unit_price=transaction.per_unit_price,
         amount=amount,
         payment_method=transaction.payment_method,
-        payment_reference=transaction.payment_reference,
         description=transaction.description
     )
 
@@ -372,7 +399,7 @@ def get_customer_ledger(customer_id: int,db: Session = Depends(get_db)):
         if transaction.transaction_type == "purchase":
             total_purchase += transaction.amount
 
-        elif transaction.transaction_type == "payment":
+        if transaction.payment_method in ["cash", "card"]:
             total_paid += transaction.amount
 
     remaining_amount = round(total_purchase - total_paid,2)
@@ -687,8 +714,7 @@ def create_inventory_item(
     new_item = Inventory(
         product_name=item.product_name,
         quantity=item.quantity,
-        purchase_price=item.purchase_price,
-        selling_price=round(item.purchase_price * 1.10, 2))
+        purchase_price=item.purchase_price)
 
     db.add(new_item)
     db.commit()
@@ -723,20 +749,15 @@ def add_transaction_to_inventory(
             detail="Transaction does not have product details"
         )
     item = db.query(Inventory).filter(Inventory.product_name == transaction.product_name).first()
-    selling_price = round(
-        transaction.per_unit_price * 1.10,
-        2)
 
     if item:
         item.quantity += int(transaction.no_of_units)
         item.purchase_price = transaction.per_unit_price
-        item.selling_price = selling_price
     else:
         item = Inventory(
             product_name=transaction.product_name,
             quantity=int(transaction.no_of_units),
-            purchase_price=transaction.per_unit_price,
-            selling_price=selling_price)
+            purchase_price=transaction.per_unit_price)
 
     db.add(item)
     db.commit()
@@ -756,7 +777,6 @@ def update_inventory_item(item_id: int,item_data: InventoryCreate,
     item.product_name = item_data.product_name
     item.quantity = item_data.quantity
     item.purchase_price = item_data.purchase_price
-    item.selling_price = item_data.selling_price
     db.commit()
     db.refresh(item)
     return item
@@ -784,20 +804,26 @@ def delete_inventory_item(item_id: int,db: Session = Depends(get_db)):
     dependencies=[Depends(get_current_user)]
 )
 def get_overall_summary_report(db: Session = Depends(get_db)):
+    # 1. Vendor Transactions (Assuming vendors might still have purchase/payment types, adjust if needed)
     v_transactions = db.query(VendorTransaction).all()
     v_purchased = sum(t.amount for t in v_transactions if t.transaction_type == "purchase")
     v_paid = sum(t.amount for t in v_transactions if t.transaction_type == "payment")
     v_balance = round(v_purchased - v_paid, 2)
 
+    # 2. Customer Transactions (Updated based on payment methods: cash/card = paid, loan = balance)
     c_transactions = db.query(CustomerTransaction).all()
-    c_purchased = sum(t.amount for t in c_transactions if t.transaction_type == "purchase")
-    c_paid = sum(t.amount for t in c_transactions if t.transaction_type == "payment")
-    c_balance = round(c_purchased - c_paid, 2)
+    c_purchased = sum(t.amount for t in c_transactions)
+    
+    # Cash or Card are instant payments
+    c_paid = sum(t.amount for t in c_transactions if t.payment_method in ["cash", "card"])
+    
+    # Loan is the pending balance
+    c_balance = sum(t.amount for t in c_transactions if t.payment_method == "loan")
 
+    # 3. Inventory (Selling price removed, using only purchase price and quantity)
     inv_items = db.query(Inventory).all()
     inv_qty = sum(i.quantity for i in inv_items)
     inv_purchase_val = sum(i.quantity * i.purchase_price for i in inv_items)
-    inv_selling_val = sum(i.quantity * i.selling_price for i in inv_items)
 
     net_balance = round(c_balance - v_balance, 2)
 
@@ -810,14 +836,12 @@ def get_overall_summary_report(db: Session = Depends(get_db)):
         customers={
             "total_purchased": round(c_purchased, 2),
             "total_paid": round(c_paid, 2),
-            "total_receivable_balance": c_balance
+            "total_receivable_balance": round(c_balance, 2)
         },
         inventory={
             "total_products": len(inv_items),
             "total_quantity": inv_qty,
-            "total_stock_cost": round(inv_purchase_val, 2),
-            "total_stock_value": round(inv_selling_val, 2),
-            "projected_profit": round(inv_selling_val - inv_purchase_val, 2)
+            "total_stock_cost": round(inv_purchase_val, 2)
         },
         net_receivable_payable_balance=net_balance
     )
@@ -873,18 +897,33 @@ def get_customer_report(db: Session = Depends(get_db)):
     customer_items = []
 
     for customer in customers:
-        c_purchased = sum(t.amount for t in customer.transactions if t.transaction_type == "purchase")
-        c_paid = sum(t.amount for t in customer.transactions if t.transaction_type == "payment")
-        c_balance = round(c_purchased - c_paid, 2)
+        # Total purchases (all transactions sum)
+        c_purchased = sum(t.amount for t in customer.transactions)
+        
+        # Payment methods breakdown
+        c_cash = sum(t.amount for t in customer.transactions if t.payment_method == "cash")
+        c_card = sum(t.amount for t in customer.transactions if t.payment_method == "card")
+        c_loan = sum(t.amount for t in customer.transactions if t.payment_method == "loan")
+        
+        # Total paid is what they paid instantly via cash or card (excluding loan)
+        c_paid = round(c_cash + c_card, 2)
+        
+        # Balance is whatever is left as loan/pending
+        c_balance = round(c_loan, 2)
+        
         total_purchased += c_purchased
         total_paid += c_paid
+        
         customer_items.append(
             CustomerSummaryItem(
                 id=customer.id,
                 name=customer.name,
                 phone=customer.phone,
                 total_purchase=round(c_purchased, 2),
-                total_paid=round(c_paid, 2),
+                total_paid=c_paid,
+                total_cash=round(c_cash, 2),
+                total_card=round(c_card, 2),
+                total_loan=round(c_loan, 2),
                 balance=c_balance
             )
         )
@@ -895,7 +934,6 @@ def get_customer_report(db: Session = Depends(get_db)):
         total_balance=round(total_purchased - total_paid, 2),
         customers=customer_items
     )
-
 
 @app.get(
     "/reports/inventory",
@@ -908,26 +946,20 @@ def get_inventory_report(db: Session = Depends(get_db)):
     total_products = len(inventory_items)
     total_quantity = 0
     total_purchase_val = 0.0
-    total_selling_val = 0.0
     item_reports = []
 
     for item in inventory_items:
         cost = round(item.quantity * item.purchase_price, 2)
-        val = round(item.quantity * item.selling_price, 2)
-        profit = round(val - cost, 2)
         total_quantity += item.quantity
         total_purchase_val += cost
-        total_selling_val += val
+        
         item_reports.append(
             InventoryItemReport(
                 id=item.id,
                 product_name=item.product_name,
                 quantity=item.quantity,
                 purchase_price=round(item.purchase_price, 2),
-                selling_price=round(item.selling_price, 2),
-                total_purchase_cost=cost,
-                total_selling_value=val,
-                projected_profit=profit
+                total_purchase_cost=cost
             )
         )
 
@@ -935,8 +967,6 @@ def get_inventory_report(db: Session = Depends(get_db)):
         total_products=total_products,
         total_quantity=total_quantity,
         total_purchase_value=round(total_purchase_val, 2),
-        total_selling_value=round(total_selling_val, 2),
-        projected_profit=round(total_selling_val - total_purchase_val, 2),
         items=item_reports
     )
 
