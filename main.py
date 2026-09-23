@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.routing import APIRoute
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from database import get_db, Base, engine, SessionLocal
 from models import Customer, CustomerTransaction, Vendor, VendorTransaction, User, Inventory
 from schemas import (
@@ -15,8 +16,11 @@ from schemas import (
     VendorCreate,
     VendorUpdate,
     VendorResponse,
-    VendorTransactionCreate,
     VendorTransactionResponse,
+    VendorPurchaseCreate,
+    VendorPurchaseResponse,
+    VendorPaymentCreate,
+    VendorPaymentResponse,
     UserCreateByAdmin,
     UserResponse,
     Token,
@@ -38,6 +42,16 @@ from auth import (
     require_admin
 )
 Base.metadata.create_all(bind=engine)
+
+# Auto-add payment columns if not present in existing SQLite database
+with engine.connect() as conn:
+    for tbl in ["vendor_transactions", "customer_transactions"]:
+        for col, col_type in [("payment_method", "VARCHAR"), ("payment_reference", "VARCHAR")]:
+            try:
+                conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass
 
 
 def seed_default_admin():
@@ -311,6 +325,8 @@ def add_customer_transaction(customer_id: int,transaction: CustomerTransactionCr
         no_of_units=transaction.no_of_units,
         per_unit_price=transaction.per_unit_price,
         amount=amount,
+        payment_method=transaction.payment_method,
+        payment_reference=transaction.payment_reference,
         description=transaction.description
     )
 
@@ -506,95 +522,117 @@ def delete_vendor(
 
 
 @app.post(
-    "/vendor/{vendor_id}/transactions",
-    response_model=VendorTransactionResponse,
+    "/vendor/{vendor_id}/purchase",
+    response_model=VendorPurchaseResponse,
     dependencies=[Depends(get_current_user)]
 )
-def add_vendor_transaction(
+def add_vendor_purchase(
     vendor_id: int,
-    transaction: VendorTransactionCreate,
+    purchase: VendorPurchaseCreate,
     db: Session = Depends(get_db)
 ):
-
-    vendor = db.query(Vendor).filter(
-        Vendor.id == vendor_id
-    ).first()
-
+    """
+    Record a purchase from a vendor.
+    Amount is automatically calculated as: no_of_units * per_unit_price.
+    No manual amount entry required.
+    """
+    vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
     if not vendor:
         raise HTTPException(
             status_code=404,
             detail="Vendor not found"
         )
 
-    if transaction.transaction_type not in [
-        "purchase",
-        "payment"
-    ]:
+    if purchase.no_of_units <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Transaction type must be purchase or payment"
+            detail="Number of units must be greater than zero"
         )
 
-    if transaction.amount is not None:
-        amount = transaction.amount
-    elif transaction.no_of_units is not None and transaction.per_unit_price is not None:
-        amount = round(transaction.no_of_units * transaction.per_unit_price, 2)
-    else:
+    if purchase.per_unit_price <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Must provide either 'amount' or both 'no_of_units' and 'per_unit_price'"
+            detail="Per unit price must be greater than zero"
         )
 
-    if amount <= 0:
+    amount = round(purchase.no_of_units * purchase.per_unit_price, 2)
+
+    new_transaction = VendorTransaction(
+        vendor_id=vendor_id,
+        transaction_type="purchase",
+        product_name=purchase.product_name,
+        no_of_units=purchase.no_of_units,
+        per_unit_price=purchase.per_unit_price,
+        amount=amount,
+        description=purchase.description
+    )
+
+    db.add(new_transaction)
+    db.commit()
+    db.refresh(new_transaction)
+    return new_transaction
+
+
+@app.post(
+    "/vendor/{vendor_id}/payment",
+    response_model=VendorPaymentResponse,
+    dependencies=[Depends(get_current_user)]
+)
+def add_vendor_payment(
+    vendor_id: int,
+    payment: VendorPaymentCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Record a payment made to a vendor with payment method (cash, card, loan)
+    and optional reference (e.g. card last 4 digits / transaction ID).
+    """
+    vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+    if not vendor:
+        raise HTTPException(
+            status_code=404,
+            detail="Vendor not found"
+        )
+
+    if payment.amount <= 0:
         raise HTTPException(
             status_code=400,
-            detail="Amount must be greater than zero"
+            detail="Payment amount must be greater than zero"
         )
 
     new_transaction = VendorTransaction(
         vendor_id=vendor_id,
-        transaction_type=transaction.transaction_type,
-        product_name=transaction.product_name,
-        no_of_units=transaction.no_of_units,
-        per_unit_price=transaction.per_unit_price,
-        amount=amount,
-        description=transaction.description
+        transaction_type="payment",
+        amount=payment.amount,
+        payment_method=payment.payment_method,
+        payment_reference=payment.payment_reference,
+        description=payment.description
     )
 
     db.add(new_transaction)
     db.commit()
     db.refresh(new_transaction)
 
-    return new_transaction
-
-
-@app.get(
-    "/vendor/{vendor_id}/transactions",
-    response_model=list[VendorTransactionResponse],
-    dependencies=[Depends(get_current_user)]
-)
-def get_vendor_transactions(
-    vendor_id: int,
-    db: Session = Depends(get_db)
-):
-
-    vendor = db.query(Vendor).filter(
-        Vendor.id == vendor_id
-    ).first()
-
-    if not vendor:
-        raise HTTPException(
-            status_code=404,
-            detail="Vendor not found"
-        )
-
-    transactions = db.query(
-        VendorTransaction
-    ).filter(
+    transactions = db.query(VendorTransaction).filter(
         VendorTransaction.vendor_id == vendor_id
     ).all()
 
-    return transactions
+    total_purchase = sum(t.amount for t in transactions if t.transaction_type == "purchase")
+    total_paid = sum(t.amount for t in transactions if t.transaction_type == "payment")
+    remaining_amount = round(total_purchase - total_paid, 2)
+
+    return {
+        "id": new_transaction.id,
+        "vendor_id": new_transaction.vendor_id,
+        "transaction_type": new_transaction.transaction_type,
+        "amount": new_transaction.amount,
+        "payment_method": new_transaction.payment_method,
+        "payment_reference": new_transaction.payment_reference,
+        "description": new_transaction.description,
+        "total_paid": round(total_paid, 2),
+        "remaining_amount": remaining_amount
+    }
+
 
 @app.get("/vendors/{vendor_id}/ledger",response_model=VendorLedgerResponse, dependencies=[Depends(get_current_user)])
 def get_vendor_ledger(vendor_id: int,db: Session = Depends(get_db)):
