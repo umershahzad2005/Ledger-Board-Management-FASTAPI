@@ -70,12 +70,55 @@ class VendorResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class VendorPurchaseCreate(BaseModel):
+    product_name: str
+    no_of_units: float
+    per_unit_price: float
+    description: Optional[str] = None
+
+
+class VendorPaymentCreate(BaseModel):
+    amount: float
+    payment_method: Literal["cash", "card", "loan"]
+    payment_reference: Optional[str] = None
+    description: Optional[str] = None
+
+
+class VendorPurchaseResponse(BaseModel):
+    id: int
+    vendor_id: int
+    transaction_type: str
+    product_name: Optional[str] = None
+    no_of_units: Optional[float] = None
+    per_unit_price: Optional[float] = None
+    amount: float
+    description: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VendorPaymentResponse(BaseModel):
+    id: int
+    vendor_id: int
+    transaction_type: str
+    amount: float
+    payment_method: str
+    payment_reference: Optional[str] = None
+    description: Optional[str] = None
+    total_paid: float
+    remaining_amount: float
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class VendorTransactionCreate(BaseModel):
     transaction_type: str
     product_name: Optional[str] = None
     no_of_units: Optional[float] = None
     per_unit_price: Optional[float] = None
     amount: Optional[float] = None
+    payment_method: Optional[Literal["cash", "card", "loan"]] = None
+    payment_reference: Optional[str] = None
     description: Optional[str] = None
 
 
@@ -87,6 +130,8 @@ class VendorTransactionResponse(BaseModel):
     no_of_units: Optional[float] = None
     per_unit_price: Optional[float] = None
     amount: float
+    payment_method: Optional[str] = None
+    payment_reference: Optional[str] = None
     description: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
