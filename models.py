@@ -29,45 +29,23 @@ class CustomerTransaction(Base):
     __tablename__ = "customer_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id"))
 
-    customer_id = Column(
-        Integer,
-        ForeignKey("customers.id"),
-        nullable=False
-    )
+    transaction_type = Column(String)
+    product_name = Column(String)
+    no_of_units = Column(Float)
+    per_unit_price = Column(Float)
+    amount = Column(Float)
 
-    transaction_type = Column(
-        String,
-        nullable=False
-    )
+    payment_method = Column(String)   # <-- YE ADD KARO
 
-    product_name = Column(
-        String,
-        nullable=True
-    )
-
-    no_of_units = Column(
-        Float,
-        nullable=True
-    )
-
-    per_unit_price = Column(
-        Float,
-        nullable=True
-    )
-
-    amount = Column(
-        Float,
-        nullable=False
-    )
-
-    description = Column(String, nullable=True)
+    description = Column(String)
 
     customer = relationship(
         "Customer",
         back_populates="transactions"
     )
-
+    
 class User(Base):
     __tablename__ = "users"
 
@@ -148,4 +126,3 @@ class Inventory(Base):
     product_name = Column(String, nullable=False)
     quantity = Column(Integer, nullable=False)
     purchase_price = Column(Float, nullable=False)
-    selling_price = Column(Float, nullable=False)

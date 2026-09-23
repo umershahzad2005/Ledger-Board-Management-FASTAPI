@@ -27,27 +27,27 @@ class CustomerDetailResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
 class CustomerTransactionCreate(BaseModel):
     transaction_type: str
-    product_name: Optional[str] = None
-    no_of_units: Optional[float] = None
-    per_unit_price: Optional[float] = None
-    amount: Optional[float] = None
-    description: Optional[str] = None
-
+    product_name: str | None = None
+    no_of_units: float | None = None
+    per_unit_price: float | None = None
+    amount: float | None = None
+    payment_method: str
+    description: str | None = None
 
 class CustomerTransactionResponse(BaseModel):
     id: int
     customer_id: int
     transaction_type: str
-    product_name: Optional[str] = None
-    no_of_units: Optional[float] = None
-    per_unit_price: Optional[float] = None
+    product_name: str | None
+    no_of_units: float | None
+    per_unit_price: float | None
     amount: float
-    description: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
+    payment_method: str
+    description: str | None
+    class Config:
+        from_attributes = True
       
 class VendorCreate(BaseModel):
     name: str
@@ -118,14 +118,12 @@ class InventoryCreate(BaseModel):
     product_name: str
     quantity: int
     purchase_price: float
-    selling_price: float
 
 class InventoryResponse(BaseModel):
     id: int
     product_name: str
     quantity: int
     purchase_price: float
-    selling_price: float
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -164,18 +162,17 @@ class InventoryItemReport(BaseModel):
     product_name: str
     quantity: int
     purchase_price: float
-    selling_price: float
     total_purchase_cost: float
-    total_selling_value: float
-    projected_profit: float
 
+    class Config:
+        from_attributes = True
+
+# 2. Main Report Response Schema
 class InventoryReportResponse(BaseModel):
     total_products: int
     total_quantity: int
     total_purchase_value: float
-    total_selling_value: float
-    projected_profit: float
-    items: list[InventoryItemReport]
+    items: List[InventoryItemReport]
 
 class OverallReportResponse(BaseModel):
     vendors: dict
