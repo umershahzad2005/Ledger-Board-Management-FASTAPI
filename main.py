@@ -1005,56 +1005,117 @@ def delete_inventory_item(item_id: int,db: Session = Depends(get_db)):
         "message": "Inventory item deleted successfully"
     }
 
-
 @app.get(
     "/reports/summary",
     response_model=OverallReportResponse,
     tags=["Reports"],
     dependencies=[Depends(get_current_user)]
 )
-def get_overall_summary_report(db: Session = Depends(get_db)):
-    # 1. Vendor Transactions (Assuming vendors might still have purchase/payment types, adjust if needed)
+def get_overall_summary_report(
+    db: Session = Depends(get_db)
+):
+
+
     v_transactions = db.query(VendorTransaction).all()
-    v_purchased = sum(t.amount for t in v_transactions if t.transaction_type == "purchase")
-    v_paid = sum(t.amount for t in v_transactions if t.transaction_type == "payment")
-    v_balance = round(v_purchased - v_paid, 2)
 
-    # 2. Customer Transactions (Updated based on payment methods: cash/card = paid, loan = balance)
+    v_purchased = 0.0
+    v_paid = 0.0
+
+    for transaction in v_transactions:
+
+        if transaction.transaction_type == "purchase":
+
+            v_purchased += transaction.amount
+
+            # Payment made at purchase time
+            v_paid += transaction.paid_amount
+
+        elif transaction.transaction_type == "payment":
+
+            # Later payment to vendor
+            v_paid += transaction.amount
+
+    v_balance = round(
+        v_purchased - v_paid,
+        2
+    )
     c_transactions = db.query(CustomerTransaction).all()
-    c_purchased = sum(t.amount for t in c_transactions)
-    
-    # Cash or Card are instant payments
-    c_paid = sum(t.amount for t in c_transactions if t.payment_method in ["cash", "card"])
-    
-    # Loan is the pending balance
-    c_balance = sum(t.amount for t in c_transactions if t.payment_method == "loan")
 
-    # 3. Inventory (Selling price removed, using only purchase price and quantity)
+    c_purchased = 0.0
+    c_paid = 0.0
+
+    for transaction in c_transactions:
+
+        if transaction.transaction_type == "sale":
+
+            c_purchased += transaction.amount
+
+            # Payment received at sale time
+            c_paid += transaction.received_amount
+
+        elif transaction.transaction_type == "payment":
+
+            # Later payment from customer
+            c_paid += transaction.amount
+
+    c_balance = round(
+        c_purchased - c_paid,
+        2
+    )
+
     inv_items = db.query(Inventory).all()
-    inv_qty = sum(i.quantity for i in inv_items)
-    inv_purchase_val = sum(i.quantity * i.purchase_price for i in inv_items)
 
-    net_balance = round(c_balance - v_balance, 2)
+    inv_qty = sum(
+        item.quantity
+        for item in inv_items
+    )
+
+    inv_purchase_val = sum(
+        item.quantity * item.purchase_price
+        for item in inv_items
+    )
+    net_balance = round(
+        c_balance - v_balance,
+        2
+    )
 
     return OverallReportResponse(
+
         vendors={
-            "total_purchased": round(v_purchased, 2),
-            "total_paid": round(v_paid, 2),
+            "total_purchased": round(
+                v_purchased,
+                2
+            ),
+            "total_paid": round(
+                v_paid,
+                2
+            ),
             "total_payable_balance": v_balance
         },
+
         customers={
-            "total_purchased": round(c_purchased, 2),
-            "total_paid": round(c_paid, 2),
-            "total_receivable_balance": round(c_balance, 2)
+            "total_purchased": round(
+                c_purchased,
+                2
+            ),
+            "total_paid": round(
+                c_paid,
+                2
+            ),
+            "total_receivable_balance": c_balance
         },
+
         inventory={
             "total_products": len(inv_items),
             "total_quantity": inv_qty,
-            "total_stock_cost": round(inv_purchase_val, 2)
+            "total_stock_cost": round(
+                inv_purchase_val,
+                2
+            )
         },
+
         net_receivable_payable_balance=net_balance
     )
-
 
 @app.get(
     "/reports/vendors",
@@ -1063,22 +1124,48 @@ def get_overall_summary_report(db: Session = Depends(get_db)):
     dependencies=[Depends(get_current_user)]
 )
 def get_vendor_report(db: Session = Depends(get_db)):
+
     vendors = db.query(Vendor).all()
+
     total_purchased = 0.0
     total_paid = 0.0
+
     vendor_items = []
 
     for vendor in vendors:
-        v_purchased = sum(t.amount for t in vendor.transactions if t.transaction_type == "purchase")
-        v_paid = sum(t.amount for t in vendor.transactions if t.transaction_type == "payment")
-        v_balance = round(v_purchased - v_paid, 2)
+
+        v_purchased = 0.0
+        v_paid = 0.0
+
+        for transaction in vendor.transactions:
+
+            # Purchase transaction
+            if transaction.transaction_type == "purchase":
+
+                v_purchased += transaction.amount
+
+                # Payment made at the time of purchase
+                v_paid += transaction.paid_amount
+
+            # Later payment
+            elif transaction.transaction_type == "payment":
+
+                v_paid += transaction.amount
+
+        v_balance = round(
+            v_purchased - v_paid,
+            2
+        )
+
         total_purchased += v_purchased
         total_paid += v_paid
+
         vendor_items.append(
             VendorSummaryItem(
                 id=vendor.id,
                 name=vendor.name,
                 vendor_role=vendor.vendor_role,
+
                 total_purchase=round(v_purchased, 2),
                 total_paid=round(v_paid, 2),
                 balance=v_balance
@@ -1088,10 +1175,12 @@ def get_vendor_report(db: Session = Depends(get_db)):
     return VendorReportResponse(
         total_purchased=round(total_purchased, 2),
         total_paid=round(total_paid, 2),
-        total_balance=round(total_purchased - total_paid, 2),
+        total_balance=round(
+            total_purchased - total_paid,
+            2
+        ),
         vendors=vendor_items
     )
-
 
 @app.get(
     "/reports/customers",
@@ -1100,39 +1189,74 @@ def get_vendor_report(db: Session = Depends(get_db)):
     dependencies=[Depends(get_current_user)]
 )
 def get_customer_report(db: Session = Depends(get_db)):
+
     customers = db.query(Customer).all()
+
     total_purchased = 0.0
     total_paid = 0.0
+
     customer_items = []
 
     for customer in customers:
-        # Total purchases (all transactions sum)
-        c_purchased = sum(t.amount for t in customer.transactions)
-        
-        # Payment methods breakdown
-        c_cash = sum(t.amount for t in customer.transactions if t.payment_method == "cash")
-        c_card = sum(t.amount for t in customer.transactions if t.payment_method == "card")
-        c_loan = sum(t.amount for t in customer.transactions if t.payment_method == "loan")
-        
-        # Total paid is what they paid instantly via cash or card (excluding loan)
-        c_paid = round(c_cash + c_card, 2)
-        
-        # Balance is whatever is left as loan/pending
-        c_balance = round(c_loan, 2)
-        
+
+        c_purchased = 0.0
+        c_paid = 0.0
+        c_cash = 0.0
+        c_card = 0.0
+        c_loan = 0.0
+
+        for transaction in customer.transactions:
+
+            # Customer sale
+            if transaction.transaction_type == "sale":
+
+                c_purchased += transaction.amount
+
+                # Amount received at the time of sale
+                c_paid += transaction.received_amount
+
+                # Payment method breakdown
+                if transaction.payment_method == "cash":
+                    c_cash += transaction.received_amount
+
+                elif transaction.payment_method == "card":
+                    c_card += transaction.received_amount
+
+                elif transaction.payment_method == "loan":
+                    c_loan += transaction.amount - transaction.received_amount
+
+            # Later loan payment
+            elif transaction.transaction_type == "payment":
+
+                c_paid += transaction.amount
+
+                if transaction.payment_method == "cash":
+                    c_cash += transaction.amount
+
+                elif transaction.payment_method == "card":
+                    c_card += transaction.amount
+
+        c_balance = round(
+            c_purchased - c_paid,
+            2
+        )
+
         total_purchased += c_purchased
         total_paid += c_paid
-        
+
         customer_items.append(
             CustomerSummaryItem(
                 id=customer.id,
                 name=customer.name,
                 phone=customer.phone,
+
                 total_purchase=round(c_purchased, 2),
-                total_paid=c_paid,
+                total_paid=round(c_paid, 2),
+
                 total_cash=round(c_cash, 2),
                 total_card=round(c_card, 2),
                 total_loan=round(c_loan, 2),
+
                 balance=c_balance
             )
         )
@@ -1140,7 +1264,10 @@ def get_customer_report(db: Session = Depends(get_db)):
     return CustomerReportResponse(
         total_purchased=round(total_purchased, 2),
         total_paid=round(total_paid, 2),
-        total_balance=round(total_purchased - total_paid, 2),
+        total_balance=round(
+            total_purchased - total_paid,
+            2
+        ),
         customers=customer_items
     )
 
