@@ -48,6 +48,21 @@ class CustomerSaleResponse(BaseModel):
     payment_method: str
     message: str
     model_config = ConfigDict(from_attributes=True)
+
+class CustomerPaymentCreate(BaseModel):
+    amount: float
+    payment_method: str
+    payment_reference: str | None = None
+    description: str | None = None
+
+
+class CustomerPaymentResponse(BaseModel):
+    customer_id: int
+    payment_amount: float
+    payment_method: str
+    total_paid: float
+    remaining_amount: float
+    message: str
     
 class VendorCreate(BaseModel):
     name: str
@@ -88,6 +103,21 @@ class VendorPurchaseResponse(BaseModel):
     paid_amount: float
     remaining_amount: float
     payment_method: str
+    message: str
+
+class VendorPaymentCreate(BaseModel):
+    amount: float
+    payment_method: str
+    payment_reference: str | None = None
+    description: str | None = None
+
+
+class VendorPaymentResponse(BaseModel):
+    vendor_id: int
+    payment_amount: float
+    payment_method: str
+    total_paid: float
+    remaining_amount: float
     message: str
 
 class UserCreateByAdmin(BaseModel):

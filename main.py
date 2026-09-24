@@ -11,6 +11,8 @@ from schemas import (
     CustomerDetailResponse,
     CustomerSaleCreate,
     CustomerSaleResponse,
+    CustomerPaymentCreate,
+    CustomerPaymentResponse,
     InventoryCreate,
     InventoryResponse,
     VendorCreate,
@@ -18,6 +20,8 @@ from schemas import (
     VendorResponse,
     VendorPurchaseCreate,
     VendorPurchaseResponse,
+    VendorPaymentCreate,
+    VendorPaymentResponse,
     UserCreateByAdmin,
     UserResponse,
     Token,
@@ -388,34 +392,148 @@ def add_customer_sale(
     "payment_method": new_transaction.payment_method,
     "message": "Sale recorded successfully"
 }
+@app.post(
+    "/customers/{customer_id}/payment",
+    response_model=CustomerPaymentResponse,
+    dependencies=[Depends(get_current_user)]
+)
+def add_customer_payment(
+    customer_id: int,
+    payment: CustomerPaymentCreate,
+    db: Session = Depends(get_db)
+):
 
-@app.get("/customers/{customer_id}/ledger",response_model=CustomerLedgerResponse, dependencies=[Depends(get_current_user)])
-def get_customer_ledger(customer_id: int,db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    # Check customer
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id
+    ).first()
 
     if not customer:
         raise HTTPException(
             status_code=404,
             detail="Customer not found"
         )
-    total_purchase = 0.0
-    total_paid = 0.0
-    for transaction in customer.transactions:
-        if transaction.transaction_type == "purchase":
-            total_purchase += transaction.amount
 
-        if transaction.payment_method in ["cash", "card"]:
+    # Validate amount
+    if payment.amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment amount must be greater than zero"
+        )
+
+    # Validate payment method
+    if payment.payment_method not in ["cash", "card"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment method must be cash or card"
+        )
+
+    # Calculate current outstanding loan
+    total_sale = 0.0
+    total_paid = 0.0
+
+    for transaction in customer.transactions:
+
+        if transaction.transaction_type == "sale":
+            total_sale += transaction.amount
+            total_paid += transaction.received_amount
+
+        elif transaction.transaction_type == "payment":
             total_paid += transaction.amount
 
-    remaining_amount = round(total_purchase - total_paid,2)
+    remaining_amount = round(
+        total_sale - total_paid,
+        2
+    )
+
+    # Payment cannot be greater than remaining loan
+    if payment.amount > remaining_amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payment cannot be greater than remaining loan. "
+                   f"Remaining loan: {remaining_amount}"
+        )
+
+    # Create separate payment transaction
+    new_payment = CustomerTransaction(
+        customer_id=customer_id,
+        transaction_type="payment",
+        amount=payment.amount,
+        received_amount=payment.amount,
+        remaining_amount=round(
+            remaining_amount - payment.amount,
+            2
+        ),
+        payment_method=payment.payment_method,
+        payment_reference=payment.payment_reference,
+        description=payment.description
+    )
+
+    db.add(new_payment)
+    db.commit()
+    db.refresh(new_payment)
+
+    new_remaining = round(
+        remaining_amount - payment.amount,
+        2
+    )
+
+    return {
+        "customer_id": customer_id,
+        "payment_amount": payment.amount,
+        "payment_method": payment.payment_method,
+        "total_paid": round(
+            total_paid + payment.amount,
+            2
+        ),
+        "remaining_amount": new_remaining,
+        "message": "Payment recorded successfully"
+    }
+@app.get(
+    "/customers/{customer_id}/ledger",
+    response_model=CustomerLedgerResponse,
+    dependencies=[Depends(get_current_user)]
+)
+def get_customer_ledger(
+    customer_id: int,
+    db: Session = Depends(get_db)
+):
+
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id
+    ).first()
+
+    if not customer:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found"
+        )
+
+    total_purchase = 0.0
+    total_paid = 0.0
+
+    for transaction in customer.transactions:
+        if transaction.transaction_type == "sale":
+            total_purchase += transaction.amount
+            total_paid += transaction.received_amount
+        
+        elif transaction.transaction_type == "payment":
+            total_paid += transaction.amount
+
+    remaining_amount = round(
+        total_purchase - total_paid,
+        2
+    )
 
     return {
         "customer_id": customer.id,
         "customer_name": customer.name,
         "phone": customer.phone,
+
         "total_purchase": round(total_purchase, 2),
         "total_paid": round(total_paid, 2),
         "remaining_amount": remaining_amount,
+
         "transactions": customer.transactions
     }
 
@@ -677,35 +795,149 @@ def add_vendor_purchase(
 
         "message": "Vendor purchase recorded and inventory updated successfully"
     }
+@app.post(
+    "/vendor/{vendor_id}/payment",
+    response_model=VendorPaymentResponse,
+    dependencies=[Depends(get_current_user)]
+)
+def add_vendor_payment(
+    vendor_id: int,
+    payment: VendorPaymentCreate,
+    db: Session = Depends(get_db)
+):
 
-
-
-@app.get("/vendors/{vendor_id}/ledger",response_model=VendorLedgerResponse, dependencies=[Depends(get_current_user)])
-def get_vendor_ledger(vendor_id: int,db: Session = Depends(get_db)):
-    vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+    # Check vendor
+    vendor = db.query(Vendor).filter(
+        Vendor.id == vendor_id
+    ).first()
 
     if not vendor:
         raise HTTPException(
             status_code=404,
-            detail="Vendor not found")
+            detail="Vendor not found"
+        )
+
+    # Validate amount
+    if payment.amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment amount must be greater than zero"
+        )
+
+    # Validate payment method
+    if payment.payment_method not in ["cash", "card"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment method must be cash or card"
+        )
+
+    # Calculate current vendor balance
+    total_purchase = 0.0
+    total_paid = 0.0
+
+    for transaction in vendor.transactions:
+
+        if transaction.transaction_type == "purchase":
+            total_purchase += transaction.amount
+            total_paid += transaction.paid_amount
+
+        elif transaction.transaction_type == "payment":
+            total_paid += transaction.amount
+
+    remaining_amount = round(
+        total_purchase - total_paid,
+        2
+    )
+
+    # Payment cannot be greater than remaining amount
+    if payment.amount > remaining_amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Payment cannot be greater than remaining amount. "
+                   f"Remaining amount: {remaining_amount}"
+        )
+
+    # Create separate payment transaction
+    new_payment = VendorTransaction(
+        vendor_id=vendor_id,
+        transaction_type="payment",
+        amount=payment.amount,
+        paid_amount=payment.amount,
+        remaining_amount=round(
+            remaining_amount - payment.amount,
+            2
+        ),
+        payment_method=payment.payment_method,
+        payment_reference=payment.payment_reference,
+        description=payment.description
+    )
+
+    db.add(new_payment)
+    db.commit()
+    db.refresh(new_payment)
+
+    new_remaining = round(
+        remaining_amount - payment.amount,
+        2
+    )
+
+    return {
+        "vendor_id": vendor_id,
+        "payment_amount": payment.amount,
+        "payment_method": payment.payment_method,
+        "total_paid": round(
+            total_paid + payment.amount,
+            2
+        ),
+        "remaining_amount": new_remaining,
+        "message": "Payment made to vendor successfully"
+    }
+
+@app.get(
+    "/vendors/{vendor_id}/ledger",
+    response_model=VendorLedgerResponse,
+    dependencies=[Depends(get_current_user)]
+)
+def get_vendor_ledger(
+    vendor_id: int,
+    db: Session = Depends(get_db)
+):
+
+    vendor = db.query(Vendor).filter(
+        Vendor.id == vendor_id
+    ).first()
+
+    if not vendor:
+        raise HTTPException(
+            status_code=404,
+            detail="Vendor not found"
+        )
+
     total_purchase = 0.0
     total_paid = 0.0
 
     for transaction in vendor.transactions:
         if transaction.transaction_type == "purchase":
             total_purchase += transaction.amount
+            total_paid += transaction.paid_amount
+
         elif transaction.transaction_type == "payment":
             total_paid += transaction.amount
 
-    remaining_amount = round(total_purchase - total_paid,2)
+    remaining_amount = round(
+        total_purchase - total_paid,
+        2
+    )
 
     return {
         "vendor_id": vendor.id,
         "vendor_name": vendor.name,
         "contact_number": vendor.contact_number,
+
         "total_purchase": round(total_purchase, 2),
         "total_paid": round(total_paid, 2),
         "remaining_amount": remaining_amount,
+
         "transactions": vendor.transactions
     }
     
