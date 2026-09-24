@@ -1,6 +1,6 @@
 # 📊 Ledger Board - Management & Accounting API
 
-A robust, production-ready REST API built with **FastAPI**, **SQLAlchemy**, and **Pydantic v2**. This application provides an all-in-one ledger and business management solution featuring **Role-Based JWT Authentication**, **Vendor Ledger**, **Customer Ledger**, **Inventory Tracking**, and **Real-Time Financial Reports**.
+A robust, production-ready REST API built with **FastAPI**, **SQLAlchemy**, and **Pydantic v2**. This application provides an all-in-one ledger and business management solution featuring **Role-Based JWT Authentication**, **Dedicated Vendor & Customer Purchase/Payment Endpoints**, **Inventory Tracking & Auto-Stock Deduction**, and **Real-Time Financial Reports**.
 
 ---
 
@@ -8,30 +8,35 @@ A robust, production-ready REST API built with **FastAPI**, **SQLAlchemy**, and 
 
 * **🔐 User Authentication & RBAC (Admin & User Roles)**
   * Secure password hashing with `bcrypt`.
-  * Stateless token authentication with `PyJWT`.
-  * Role-based access control (`admin` vs. `user`) with dependency-based protection (`require_admin`).
-  * Direct integration with Swagger UI's built-in **Authorize** button (OAuth2 Password Flow).
+  * Stateless token authentication with `PyJWT` (HS256).
+  * Role-based access control (`admin` vs. `user`) with dependency protection (`require_admin`).
+  * Dedicated `POST /login` accepting clean JSON (`email` & `password`).
+  * Direct integration with Swagger UI's green **Authorize** 🔒 button via **`HTTPBearer`** (paste token directly into the `Value` box).
+  * Auto-seeded default administrator account (`admin@ledger.com` / `admin123`).
 
-* **🏢 Vendor Management & Ledger**
-  * Record vendors with contact information and trade roles.
-  * Track purchases and payments with running balance calculations.
-  * Automatic total calculation from `no_of_units * per_unit_price`.
+* **🏢 Vendor Management & Dedicated Ledger**
+  * Create, view, update, and delete vendor profiles.
+  * **Dedicated Purchase (`POST /vendor/{id}/purchase`)**: Amount is automatically calculated ($\text{no\_of\_units} \times \text{per\_unit\_price}$); no manual amount entry required. Clean response with zero payment null fields.
+  * **Dedicated Payment (`POST /vendor/{id}/payment`)**: Supports payment methods (`cash`, `card`, `loan`) and optional transaction references. Live response immediately returns `total_paid` and `remaining_amount`.
+  * **Vendor Ledger (`GET /vendors/{id}/ledger`)**: Full running ledger statement with total purchases, total payments, remaining balance, and itemized transaction list.
 
-* **👥 Customer Management & Ledger**
-  * Maintain customer profiles and records.
-  * Record customer purchases and payments.
-  * Real-time outstanding customer receivable balance calculation.
+* **👥 Customer Management & Dedicated Ledger**
+  * Create, view, update, and delete customer profiles.
+  * **Dedicated Sale (`POST /customers/{id}/sale`)**: Amount auto-calculated from units and price. **Automatically checks and deducts stock from Inventory**. Clean response with zero payment null fields.
+  * **Dedicated Payment (`POST /customers/{id}/payment`)**: Records customer payments (`cash`, `card`, `loan`) with reference. Live response returns `total_paid` and `remaining_amount`.
+  * **Customer Ledger (`GET /customers/{id}/ledger`)**: Full customer ledger statement with real-time outstanding balances.
 
 * **📦 Inventory Management**
   * Track product quantities, purchase costs, and selling prices.
-  * Automatically import stock directly from vendor purchase transactions.
-  * Automatic selling price margin calculation (10% default markup).
+  * Automatically import stock directly from vendor purchases (`GET /inventory/transaction/{id}`) with 10% default profit margin calculation.
+  * Automatic stock validation & deduction when customers make a purchase.
+  * Full manual CRUD operations on inventory items.
 
 * **📈 Financial Reports & Analytics**
-  * **Vendor Report (`/reports/vendors`)**: Total purchases, total payments, and outstanding payables.
-  * **Customer Report (`/reports/customers`)**: Total sales, total collections, and outstanding receivables.
-  * **Inventory Report (`/reports/inventory`)**: Total stock valuation (purchase cost vs. potential sales value) and projected profits.
-  * **Executive Summary (`/reports/summary`)**: High-level financial overview and net receivable/payable position.
+  * **Executive Summary (`/reports/summary`)**: High-level financial overview across vendors, customers, inventory stock value, and net balance position.
+  * **Vendor Report (`/reports/vendors`)**: Aggregated total purchases, total payments, and outstanding payables.
+  * **Customer Report (`/reports/customers`)**: Aggregated sales, collections, and outstanding receivables.
+  * **Inventory Report (`/reports/inventory`)**: Stock quantities, total purchase valuation, projected selling value, and projected gross profit.
 
 ---
 
@@ -41,8 +46,7 @@ A robust, production-ready REST API built with **FastAPI**, **SQLAlchemy**, and 
 * **Server:** [Uvicorn](https://www.uvicorn.org/) (ASGI Web Server)
 * **ORM & Database:** [SQLAlchemy 2.0](https://www.sqlalchemy.org/) with SQLite (configurable to PostgreSQL/MySQL)
 * **Data Validation:** [Pydantic v2](https://docs.pydantic.dev/)
-* **Security:** `bcrypt` (password hashing) & `PyJWT` (JWT tokens)
-* **Form Parsing:** `python-multipart` (OAuth2 support)
+* **Security & Auth:** `bcrypt` (password hashing), `PyJWT` (JWT tokens), `HTTPBearer` (OpenAPI Bearer scheme)
 
 ---
 
@@ -154,176 +158,207 @@ Once the server is running, open your web browser to test and explore the API:
 
 ---
 
-## 🔐 How to Authenticate in Swagger UI
+## 🔐 How to Authenticate in Swagger UI (Step-by-Step)
 
-By default, **ALL business APIs are locked 🔒** and require authentication. Only `/login` and `/` are open.
+By default, **all business APIs are locked 🔒** and require authentication. Only `/login` and `/` are public.
 
-### 1. Default Admin Credentials (Auto-Seeded)
-On server startup, a default administrator account is automatically created:
+### 1. Default Admin Account (Auto-Seeded)
+On application startup, a default administrator account is automatically created:
 * **Email:** `admin@ledger.com`
 * **Password:** `admin123`
 * **Role:** `admin`
 
-### 2. Unlocking APIs in Swagger UI:
+### 2. Unlocking Swagger UI APIs:
 1. Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
-2. Notice that every API endpoint under **Customers**, **Vendors**, **Inventory**, **Reports**, and **Admin** displays a 🔒 lock icon.
-3. Click the green **Authorize** 🔒 button at the top right of Swagger UI.
-4. Enter:
-   * **`username`**: `admin@ledger.com`
-   * **`password`**: `admin123`
-   * *(Leave `client_id` and `client_secret` blank)*
-5. Click **Authorize** → **Close**.
-6. All locked APIs are now unlocked and ready to execute!
-
-### 3. Creating New User Credentials (Admin Only):
-Public self-registration is disabled. To add a new user account:
-1. Authorize as Admin.
-2. Call `POST /admin/create-user`:
+2. Expand the `POST /login` endpoint and click **Try it out**.
+3. In the Request body, enter the admin credentials:
    ```json
    {
-     "name": "Staff Member",
-     "email": "staff@ledger.com",
-     "password": "staffpassword123",
-     "role": "user"
+     "email": "admin@ledger.com",
+     "password": "admin123"
    }
    ```
-3. That user can now log in via `/login` and access all customer, vendor, inventory, and report endpoints.
+4. Click **Execute**. The response body will return your JWT access token:
+   ```json
+   {
+     "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+     "token_type": "bearer",
+     "role": "admin"
+   }
+   ```
+5. **Copy** the `access_token` string (without quotes).
+6. Scroll to the top right of the page and click the green **Authorize** 🔒 button.
+7. In the popup dialog under **HTTPBearer (http, Bearer)**, paste your copied token into the **`Value:`** field:
+   ```text
+   Value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   ```
+8. Click **Authorize**, then click **Close**.
+9. All padlock icons (🔒) are now authenticated! All protected endpoints are ready to execute.
+
+### 3. Creating Additional Staff Users (Admin Only)
+Once authorized as Admin, you can provision accounts for staff members:
+* Call `POST /admin/create-user`:
+  ```json
+  {
+    "name": "Staff Member",
+    "email": "staff@ledger.com",
+    "password": "staffpassword123",
+    "role": "user"
+  }
+  ```
+* That user can now log in via `POST /login` with their credentials to access operational endpoints.
 
 ---
 
 ## 🗂️ Complete API Reference
 
-### 1. Authentication & User Management
+### 1. Authentication & Admin
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/login` | **Public** | Authenticate via email & password and receive JWT Bearer token |
-| `POST` | `/admin/create-user` | **Admin Only** 🔒 | Create new login credentials for other admins or staff |
-| `GET` | `/admin/users` | **Admin Only** 🔒 | List all registered user accounts |
+| `POST` | `/login` | **Public** | Login with email & password; returns JWT Bearer token |
+| `POST` | `/admin/create-user` | **Admin Only** 🔒 | Provision new admin or user credentials |
+| `GET` | `/admin/users` | **Admin Only** 🔒 | List all registered accounts |
 
-### 2. Customers & Customer Ledger
+### 2. Vendors & Vendor Ledger
+| Method | Endpoint | Access | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/vendors` | **Authenticated** 🔒 | Create a new vendor profile |
+| `GET` | `/vendors` | **Authenticated** 🔒 | List all vendors |
+| `GET` | `/vendor/{id}` | **Authenticated** 🔒 | Get single vendor details and current balance |
+| `PUT` | `/vendor/{id}` | **Authenticated** 🔒 | Update vendor information |
+| `DELETE` | `/vendor/{id}` | **Authenticated** 🔒 | Delete vendor and associated records |
+| `POST` | `/vendor/{id}/purchase` | **Authenticated** 🔒 | Record purchase from vendor (auto-calculates amount) |
+| `POST` | `/vendor/{id}/payment` | **Authenticated** 🔒 | Record payment to vendor (`cash`/`card`/`loan`); returns live `total_paid` & `remaining_amount` |
+| `GET` | `/vendors/{id}/ledger` | **Authenticated** 🔒 | Complete vendor statement with totals and transaction history |
+
+### 3. Customers & Customer Ledger
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/customers` | **Authenticated** 🔒 | Create a new customer profile |
 | `GET` | `/customers` | **Authenticated** 🔒 | List all customers |
-| `GET` | `/customers/{id}` | **Authenticated** 🔒 | Get customer details with real-time balance calculation |
+| `GET` | `/customers/{id}` | **Authenticated** 🔒 | Get single customer details and current balance |
 | `PUT` | `/customers/{id}` | **Authenticated** 🔒 | Update customer information |
-| `DELETE` | `/customers/{id}` | **Authenticated** 🔒 | Delete a customer and their transaction history |
-| `POST` | `/customers/{id}/transactions` | **Authenticated** 🔒 | Record customer purchase or payment (auto-deducts inventory) |
-| `GET` | `/customers/{id}/transactions` | **Authenticated** 🔒 | List all transactions for a specific customer |
-| `GET` | `/customers/{id}/ledger` | **Authenticated** 🔒 | Full customer ledger statement with running balances |
+| `DELETE` | `/customers/{id}` | **Authenticated** 🔒 | Delete customer and associated records |
+| `POST` | `/customers/{id}/sale` | **Authenticated** 🔒 | Sell product to customer (validates price/stock, auto-deducts inventory) |
+| `POST` | `/customers/{id}/payment` | **Authenticated** 🔒 | Record payment from customer (`cash`/`card`/`loan`); returns live `total_paid` & `remaining_amount` |
+| `GET` | `/customers/{id}/ledger` | **Authenticated** 🔒 | Complete customer statement with totals and transaction history |
 
-### 3. Vendors & Vendor Ledger
+### 4. Inventory Management
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/vendors` | **Authenticated** 🔒 | Create a new vendor with role and contact number |
-| `GET` | `/vendors` | **Authenticated** 🔒 | List all vendors |
-| `GET` | `/vendor/{id}` | **Authenticated** 🔒 | Get vendor details with real-time balance calculation |
-| `PUT` | `/vendor/{id}` | **Authenticated** 🔒 | Update vendor details |
-| `DELETE` | `/vendor/{id}` | **Authenticated** 🔒 | Delete a vendor and their transaction history |
-| `POST` | `/vendor/{id}/transactions` | **Authenticated** 🔒 | Record vendor purchase or payment |
-| `GET` | `/vendor/{id}/transactions` | **Authenticated** 🔒 | List all transactions for a specific vendor |
-| `GET` | `/vendors/{id}/ledger` | **Authenticated** 🔒 | Full vendor ledger statement with running balances |
-
-### 4. Inventory
-| Method | Endpoint | Access | Description |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/inventory` | **Authenticated** 🔒 | List all stock items |
-| `GET` | `/inventory/{id}` | **Authenticated** 🔒 | Get single inventory item details |
-| `POST` | `/inventory` | **Authenticated** 🔒 | Add new product to inventory manually |
-| `PUT` | `/inventory/{id}` | **Authenticated** 🔒 | Update inventory item pricing or stock count |
+| `GET` | `/inventory` | **Authenticated** 🔒 | List all inventory items and quantities |
+| `GET` | `/inventory/{id}` | **Authenticated** 🔒 | Get details of a single inventory item |
+| `POST` | `/inventory` | **Authenticated** 🔒 | Manually add a new product to inventory |
+| `PUT` | `/inventory/{id}` | **Authenticated** 🔒 | Update inventory pricing or stock quantity |
 | `DELETE` | `/inventory/{id}` | **Authenticated** 🔒 | Remove item from inventory |
-| `GET` | `/inventory/transaction/{transaction_id}` | **Authenticated** 🔒 | Auto-add/update inventory stock directly from a vendor purchase |
 
 ### 5. Financial Reports
 | Method | Endpoint | Access | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/reports/summary` | **Authenticated** 🔒 | Executive dashboard: Vendor, Customer & Inventory summary |
-| `GET` | `/reports/vendors` | **Authenticated** 🔒 | Total purchases, payments, and payable balances for all vendors |
-| `GET` | `/reports/customers` | **Authenticated** 🔒 | Total sales, collections, and receivable balances for all customers |
-| `GET` | `/reports/inventory` | **Authenticated** 🔒 | Stock quantities, inventory cost value, sales value, and projected profit |
+| `GET` | `/reports/summary` | **Authenticated** 🔒 | Executive summary across vendors, customers, stock valuation, and net balance |
+| `GET` | `/reports/vendors` | **Authenticated** 🔒 | Summary of total purchases, payments, and payable balances for all vendors |
+| `GET` | `/reports/customers` | **Authenticated** 🔒 | Summary of total sales, payments, and receivable balances for all customers |
+| `GET` | `/reports/inventory` | **Authenticated** 🔒 | Total stock units, cost valuation, sales valuation, and projected profit |
 
 ---
 
-## 🧪 Quick Walkthrough: Step-by-Step Testing Flow
+## 🧪 Quick Walkthrough: Step-by-Step Business Flow
 
-Once your application is running, follow this quick business flow to test the system:
+Follow this end-to-end flow in Swagger UI to test the complete accounting and inventory cycle:
 
-1. **Create a Vendor:**
-   * `POST /vendors`
-   * Body:
-     ```json
-     {
-       "name": "ABC Cement Mills",
-       "vendor_role": "Manufacturer",
-       "contact_number": "+1234567890"
-     }
-     ```
+### 1. Authenticate in Swagger
+* Call `POST /login` with:
+  ```json
+  {
+    "email": "admin@ledger.com",
+    "password": "admin123"
+  }
+  ```
+* Copy the returned `access_token`.
+* Click the green **Authorize** 🔒 button at the top right, paste the token into **`Value:`**, and click **Authorize** → **Close**.
 
-2. **Add a Vendor Purchase Transaction:**
-   * `POST /vendor/1/transactions`
-   * Body:
-     ```json
-     {
-       "transaction_type": "purchase",
-       "product_name": "Cement Bag 50kg",
-       "no_of_units": 100,
-       "per_unit_price": 20.0,
-       "description": "Batch #101 purchase"
-     }
-     ```
-   *(Amount automatically calculates to 2,000.00).*
+### 2. Create a Vendor
+* `POST /vendors`
+  ```json
+  {
+    "name": "ABC Wholesalers",
+    "vendor_role": "Supplier",
+    "contact_number": "+1234567890"
+  }
+  ```
 
-3. **Import Purchase Into Inventory:**
-   * `GET /inventory/transaction/1`
-   * Automatically adds 100 units of "Cement Bag 50kg" with purchase price 20.0 and default selling price 22.0 (10% markup).
+### 3. Record a Vendor Purchase (Auto Restocks Inventory)
+* `POST /vendor/1/purchase`
+  ```json
+  {
+    "product_name": "iPhone 15",
+    "no_of_units": 10,
+    "per_unit_price": 800.0,
+    "paid_amount": 0,
+    "payment_method": "loan",
+    "description": "Stock order #101"
+  }
+  ```
+  *(Total amount is automatically calculated to $8,000.00; this purchase **automatically adds 10 units of "iPhone 15" to Inventory**).*
 
-4. **Record a Vendor Payment:**
-   * `POST /vendor/1/transactions`
-   * Body:
-     ```json
-     {
-       "transaction_type": "payment",
-       "amount": 1200.0,
-       "description": "Partial payment via bank transfer"
-     }
-     ```
-   * Calling `GET /vendor/1` now displays `remaining_amount: 800.0`.
+### 4. Verify Stock in Inventory
+* `GET /inventory`
+  * Displays 10 units of "iPhone 15" in stock with purchase price 800.0.
 
-5. **Create a Customer:**
-   * `POST /customers`
-   * Body:
-     ```json
-     {
-       "name": "Modern Builders Inc",
-       "phone": "+9876543210",
-       "address": "456 Market St"
-     }
-     ```
+### 5. Make a Vendor Payment
+* `POST /vendor/1/payment`
+  ```json
+  {
+    "amount": 5000.0,
+    "payment_method": "card",
+    "payment_reference": "card ending in 4762",
+    "description": "Paid initial advance via company debit card"
+  }
+  ```
+  * Response immediately reports `total_paid: 5000.0` and `remaining_amount: 3000.0`.
 
-6. **Record a Customer Purchase & Payment:**
-   * `POST /customers/1/transactions` (Purchase):
-     ```json
-     {
-       "transaction_type": "purchase",
-       "product_name": "Cement Bag 50kg",
-       "no_of_units": 40,
-       "per_unit_price": 22.0,
-       "description": "Site supply order"
-     }
-     ```
-     *(Amount = 880.00)*
-   * `POST /customers/1/transactions` (Payment):
-     ```json
-     {
-       "transaction_type": "payment",
-       "amount": 500.0,
-       "description": "Cash deposit"
-     }
-     ```
-   * Calling `GET /customers/1` now displays `remaining_amount: 380.0`.
+### 6. Create a Customer
+* `POST /customers`
+  ```json
+  {
+    "name": "Modern Retailers",
+    "phone": "+9876543210",
+    "address": "789 Commercial Ave"
+  }
+  ```
 
-7. **Generate Financial Reports:**
-   * `GET /reports/summary`: Displays current accounts payable ($800.00), accounts receivable ($380.00), inventory valuation, and net balance.
+### 7. Sell to Customer (Auto Stock Deduction)
+* `POST /customers/1/sale`
+  ```json
+  {
+    "product_name": "iPhone 15",
+    "no_of_units": 3,
+    "per_unit_price": 950.0,
+    "received_amount": 0,
+    "payment_method": "loan",
+    "description": "Customer order #SO-50"
+  }
+  ```
+  * Total amount calculates to $2,850.00.
+  * System validates that selling price ($950) is not lower than buying cost ($800).
+  * Inventory stock for "iPhone 15" automatically drops from 10 to 7 units!
+
+### 8. Record Customer Payment
+* `POST /customers/1/payment`
+  ```json
+  {
+    "amount": 2000.0,
+    "payment_method": "cash",
+    "payment_reference": "Receipt #REC-101",
+    "description": "Cash on delivery"
+  }
+  ```
+  * Response confirms `total_paid: 2000.0` and `remaining_amount: 850.0`.
+
+### 9. Check Statements & Reports
+* `GET /vendors/1/ledger`: Full vendor statement with purchases, payments, and remaining payable balance ($3,000.00).
+* `GET /customers/1/ledger`: Full customer statement with purchases, collections, and remaining receivable balance ($850.00).
+* `GET /reports/summary`: Complete executive dashboard displaying net receivables/payables and stock valuations.
 
 ---
 
@@ -332,11 +367,11 @@ Once your application is running, follow this quick business flow to test the sy
 ```text
 FastAPI-Ledger/
 │
-├── auth.py             # Password hashing (bcrypt), JWT generation, & RBAC dependencies
-├── database.py         # SQLAlchemy engine, session maker, and Base setup
-├── models.py           # Database models (User, Customer, CustomerTransaction, Vendor, VendorTransaction, Inventory)
-├── schemas.py          # Pydantic validation schemas and report response models
-├── main.py             # FastAPI entrypoint, route handlers, and startup hooks
+├── auth.py             # HTTPBearer auth, bcrypt hashing, JWT decode/encode & RBAC
+├── database.py         # SQLAlchemy engine, session maker, and Base declarative setup
+├── models.py           # Database models (User, Customer, Vendor, Inventory, Transactions)
+├── schemas.py          # Pydantic v2 schemas, dedicated purchase/payment models & reports
+├── main.py             # FastAPI application, route handlers, and default admin seeding
 ├── requirements.txt    # Production dependency requirements
 └── README.md           # Project documentation and setup instructions
 ```
@@ -345,13 +380,20 @@ FastAPI-Ledger/
 
 ## 💡 Troubleshooting & FAQ
 
-* **Q: How do I reset the database to a clean state?**
-  * Stop the server (`Ctrl + C`).
-  * Delete `ledger.db` in the project root folder.
-  * Start the server again (`uvicorn main:app --reload`). SQLAlchemy will automatically recreate fresh, clean tables.
+* **Q: How do I authorize in Swagger UI?**
+  * Call `POST /login` with your email and password (`admin@ledger.com` / `admin123`).
+  * Copy the `access_token` value from the response body.
+  * Click the green **Authorize** 🔒 button at the top right of the Swagger UI page.
+  * Paste your token into the **`Value:`** field and click **Authorize**.
 
-* **Q: Why do I get a `422 Unprocessable Content` error in Swagger Authorize?**
-  * Ensure you enter your email into the **`username`** field in the Swagger Authorize modal and leave `client_id` and `client_secret` blank.
+* **Q: Why does my customer purchase fail with "Not enough stock"?**
+  * Customer purchases automatically validate and deduct stock from Inventory.
+  * Ensure the product exists in Inventory with sufficient stock before selling, or add stock via `GET /inventory/transaction/{id}` or `POST /inventory`.
+
+* **Q: How do I reset the database to a fresh state?**
+  * Stop the server (`Ctrl + C`).
+  * Delete the `ledger.db` file in the project folder.
+  * Restart the server (`uvicorn main:app --reload`). SQLAlchemy will recreate fresh tables and automatically seed the default admin account.
 
 * **Q: Script execution is disabled on Windows PowerShell?**
   * Open PowerShell as Administrator and run:
