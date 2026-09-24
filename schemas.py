@@ -27,61 +27,27 @@ class CustomerDetailResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class CustomerPurchaseCreate(BaseModel):
+class CustomerSaleCreate(BaseModel):
     product_name: str
-    no_of_units: float
+    no_of_units: int
     per_unit_price: float
-    description: Optional[str] = None
-
-
-class CustomerPaymentCreate(BaseModel):
-    amount: float
-    payment_method: Literal["cash", "card", "loan"]
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-
-
-class CustomerPurchaseResponse(BaseModel):
-    id: int
-    customer_id: int
-    transaction_type: str
-    product_name: str
-    no_of_units: float
-    per_unit_price: float
-    amount: float
-    description: Optional[str] = None
-
+    received_amount: float = 0
+    payment_method: str = "loan"
+    payment_reference: str | None = None
+    description: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
-
-class CustomerPaymentResponse(BaseModel):
-    id: int
+class CustomerSaleResponse(BaseModel):
     customer_id: int
-    transaction_type: str
-    amount: float
-    payment_method: str
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-    total_paid: float
+    product_name: str
+    no_of_units: int
+    per_unit_price: float
+    total_amount: float
+    received_amount: float
     remaining_amount: float
-
+    payment_method: str
+    message: str
     model_config = ConfigDict(from_attributes=True)
-
-
-class CustomerTransactionResponse(BaseModel):
-    id: int
-    customer_id: int
-    transaction_type: str
-    product_name: Optional[str] = None
-    no_of_units: Optional[float] = None
-    per_unit_price: Optional[float] = None
-    amount: float
-    payment_method: Optional[str] = None
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
     
 class VendorCreate(BaseModel):
     name: str
@@ -106,70 +72,23 @@ class VendorResponse(BaseModel):
 
 class VendorPurchaseCreate(BaseModel):
     product_name: str
-    no_of_units: float
+    no_of_units: int
     per_unit_price: float
-    description: Optional[str] = None
-
-
-class VendorPaymentCreate(BaseModel):
-    amount: float
-    payment_method: Literal["cash", "card", "loan"]
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-
+    paid_amount: float = 0
+    payment_method: str = "loan"
+    payment_reference: str | None = None
+    description: str | None = None
 
 class VendorPurchaseResponse(BaseModel):
-    id: int
     vendor_id: int
-    transaction_type: str
-    product_name: Optional[str] = None
-    no_of_units: Optional[float] = None
-    per_unit_price: Optional[float] = None
-    amount: float
-    description: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class VendorPaymentResponse(BaseModel):
-    id: int
-    vendor_id: int
-    transaction_type: str
-    amount: float
-    payment_method: str
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-    total_paid: float
+    product_name: str
+    no_of_units: int
+    per_unit_price:float
+    total_amount: float
+    paid_amount: float
     remaining_amount: float
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class VendorTransactionCreate(BaseModel):
-    transaction_type: str
-    product_name: Optional[str] = None
-    no_of_units: Optional[float] = None
-    per_unit_price: Optional[float] = None
-    amount: Optional[float] = None
-    payment_method: Optional[Literal["cash", "card", "loan"]] = None
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-
-
-class VendorTransactionResponse(BaseModel):
-    id: int
-    vendor_id: int
-    transaction_type: str
-    product_name: Optional[str] = None
-    no_of_units: Optional[float] = None
-    per_unit_price: Optional[float] = None
-    amount: float
-    payment_method: Optional[str] = None
-    payment_reference: Optional[str] = None
-    description: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
+    payment_method: str
+    message: str
 
 class UserCreateByAdmin(BaseModel):
     name: str
