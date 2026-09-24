@@ -5,7 +5,7 @@ from typing import Optional
 import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -15,7 +15,8 @@ SECRET_KEY = os.getenv("SECRET_KEY", "ledger-secret-key-change-in-production-202
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login", auto_error=True)
+security = HTTPBearer(auto_error=False)
+oauth2_scheme = security  # backwards compatibility alias
 
 
 def hash_password(password: str) -> str:
@@ -56,16 +57,20 @@ def decode_access_token(token: str) -> Optional[dict]:
 
 
 def get_current_user(
-    token: Optional[str] = Depends(oauth2_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
     """FastAPI dependency: Authenticate the user from the Bearer token."""
-    if not token:
+    if not credentials or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Missing Bearer token.",
+            detail="Authentication required. Missing Bearer token. Please click the green Authorize button in Swagger and paste your JWT token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    token = credentials.credentials.strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
 
     payload = decode_access_token(token)
     if payload is None:

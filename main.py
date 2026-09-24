@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.routing import APIRoute
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from database import get_db, Base, engine, SessionLocal
@@ -26,6 +25,7 @@ from schemas import (
     VendorPaymentResponse,
     UserCreateByAdmin,
     UserResponse,
+    LoginRequest,
     Token,
     VendorReportResponse,
     VendorSummaryItem,
@@ -131,17 +131,16 @@ def create_user_by_admin(
     tags=["Authentication"]
 )
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    login_data: LoginRequest,
     db: Session = Depends(get_db)
 ):
     """
-    Login endpoint — supports Swagger Authorize button directly.
-    In the 'username' field, enter your **email address**.
-    Leave client_id and client_secret blank.
+    Login with email and password to receive a JWT access token.
+    Copy the returned 'access_token' and paste it into the green 'Authorize' dialog
+    at the top of Swagger UI to authenticate all protected requests.
     """
-    # OAuth2PasswordRequestForm uses 'username' field — we treat it as email
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    user = db.query(User).filter(User.email == login_data.email).first()
+    if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
