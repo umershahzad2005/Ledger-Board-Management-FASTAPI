@@ -16,11 +16,8 @@ from schemas import (
     VendorCreate,
     VendorUpdate,
     VendorResponse,
-    VendorTransactionResponse,
     VendorPurchaseCreate,
     VendorPurchaseResponse,
-    VendorPaymentCreate,
-    VendorPaymentResponse,
     UserCreateByAdmin,
     UserResponse,
     Token,
@@ -555,7 +552,6 @@ def delete_vendor(
         "vendor_id": vendor_id
     }
 
-
 @app.post(
     "/vendor/{vendor_id}/purchase",
     response_model=VendorPurchaseResponse,
@@ -566,12 +562,11 @@ def add_vendor_purchase(
     purchase: VendorPurchaseCreate,
     db: Session = Depends(get_db)
 ):
-    """
-    Record a purchase from a vendor.
-    Amount is automatically calculated as: no_of_units * per_unit_price.
-    No manual amount entry required.
-    """
-    vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
+
+    vendor = db.query(Vendor).filter(
+        Vendor.id == vendor_id
+    ).first()
+
     if not vendor:
         raise HTTPException(
             status_code=404,
@@ -590,83 +585,99 @@ def add_vendor_purchase(
             detail="Per unit price must be greater than zero"
         )
 
-    amount = round(purchase.no_of_units * purchase.per_unit_price, 2)
+    total_amount = round(
+        purchase.no_of_units * purchase.per_unit_price,
+        2
+    )
 
+    if purchase.payment_method not in ["cash", "card", "loan"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment method must be cash, card, or loan"
+        )
+
+    if purchase.payment_method == "loan":
+        paid_amount = 0
+    else:
+        paid_amount = purchase.paid_amount
+
+
+    if paid_amount < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid amount cannot be negative"
+        )
+
+    if paid_amount > total_amount:
+        raise HTTPException(
+            status_code=400,
+            detail="Paid amount cannot be greater than total amount"
+        )
+
+
+    remaining_amount = round(
+        total_amount - paid_amount,
+        2
+    )
+    item = db.query(Inventory).filter(
+        Inventory.product_name == purchase.product_name
+    ).first()
+
+    if item:
+        # Product already exists
+        item.quantity += purchase.no_of_units
+
+        # Update purchase price
+        item.purchase_price = purchase.per_unit_price
+
+    else:
+        # New product
+        item = Inventory(
+            product_name=purchase.product_name,
+            quantity=purchase.no_of_units,
+            purchase_price=purchase.per_unit_price
+        )
+
+        db.add(item)
     new_transaction = VendorTransaction(
         vendor_id=vendor_id,
         transaction_type="purchase",
+
         product_name=purchase.product_name,
         no_of_units=purchase.no_of_units,
         per_unit_price=purchase.per_unit_price,
-        amount=amount,
+
+        amount=total_amount,
+
+        paid_amount=paid_amount,
+        remaining_amount=remaining_amount,
+
+        payment_method=purchase.payment_method,
+        payment_reference=purchase.payment_reference,
+
         description=purchase.description
     )
 
     db.add(new_transaction)
+
     db.commit()
     db.refresh(new_transaction)
-    return new_transaction
-
-
-@app.post(
-    "/vendor/{vendor_id}/payment",
-    response_model=VendorPaymentResponse,
-    dependencies=[Depends(get_current_user)]
-)
-def add_vendor_payment(
-    vendor_id: int,
-    payment: VendorPaymentCreate,
-    db: Session = Depends(get_db)
-):
-    """
-    Record a payment made to a vendor with payment method (cash, card, loan)
-    and optional reference (e.g. card last 4 digits / transaction ID).
-    """
-    vendor = db.query(Vendor).filter(Vendor.id == vendor_id).first()
-    if not vendor:
-        raise HTTPException(
-            status_code=404,
-            detail="Vendor not found"
-        )
-
-    if payment.amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Payment amount must be greater than zero"
-        )
-
-    new_transaction = VendorTransaction(
-        vendor_id=vendor_id,
-        transaction_type="payment",
-        amount=payment.amount,
-        payment_method=payment.payment_method,
-        payment_reference=payment.payment_reference,
-        description=payment.description
-    )
-
-    db.add(new_transaction)
-    db.commit()
-    db.refresh(new_transaction)
-
-    transactions = db.query(VendorTransaction).filter(
-        VendorTransaction.vendor_id == vendor_id
-    ).all()
-
-    total_purchase = sum(t.amount for t in transactions if t.transaction_type == "purchase")
-    total_paid = sum(t.amount for t in transactions if t.transaction_type == "payment")
-    remaining_amount = round(total_purchase - total_paid, 2)
 
     return {
-        "id": new_transaction.id,
-        "vendor_id": new_transaction.vendor_id,
-        "transaction_type": new_transaction.transaction_type,
-        "amount": new_transaction.amount,
+        "vendor_id": vendor_id,
+        "product_name": new_transaction.product_name,
+        "no_of_units": new_transaction.no_of_units,
+        "per_unit_price": new_transaction.per_unit_price,
+
+        "total_amount": new_transaction.amount,
+        "paid_amount": new_transaction.paid_amount,
+        "remaining_amount": new_transaction.remaining_amount,
+
         "payment_method": new_transaction.payment_method,
-        "payment_reference": new_transaction.payment_reference,
-        "description": new_transaction.description,
-        "total_paid": round(total_paid, 2),
-        "remaining_amount": remaining_amount
+
+        "message": "Vendor purchase recorded and inventory updated successfully"
     }
+
 
 
 @app.get("/vendors/{vendor_id}/ledger",response_model=VendorLedgerResponse, dependencies=[Depends(get_current_user)])
@@ -730,48 +741,6 @@ def create_inventory_item(
 
     return new_item
 
-
-@app.get("/inventory/transaction/{transaction_id}",response_model=InventoryResponse, dependencies=[Depends(get_current_user)])
-def add_transaction_to_inventory(
-    transaction_id: int,
-    db: Session = Depends(get_db)):
-
-    transaction = db.query(VendorTransaction).filter(VendorTransaction.id == transaction_id).first()
-
-    if not transaction:
-        raise HTTPException(
-            status_code=404,
-            detail="Vendor transaction not found"
-        )
-    if transaction.transaction_type != "purchase":
-        raise HTTPException(
-            status_code=400,
-            detail="Only purchase transaction can be added to inventory"
-        )
-    if (
-        not transaction.product_name
-        or not transaction.no_of_units
-        or not transaction.per_unit_price):
-        raise HTTPException(
-            status_code=400,
-            detail="Transaction does not have product details"
-        )
-    item = db.query(Inventory).filter(Inventory.product_name == transaction.product_name).first()
-
-    if item:
-        item.quantity += int(transaction.no_of_units)
-        item.purchase_price = transaction.per_unit_price
-    else:
-        item = Inventory(
-            product_name=transaction.product_name,
-            quantity=int(transaction.no_of_units),
-            purchase_price=transaction.per_unit_price)
-
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return item
-        
 @app.put("/inventory/{item_id}", response_model=InventoryResponse, dependencies=[Depends(get_current_user)])
 def update_inventory_item(item_id: int,item_data: InventoryCreate,
     db: Session = Depends(get_db)):

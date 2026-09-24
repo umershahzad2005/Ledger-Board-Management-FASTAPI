@@ -91,52 +91,30 @@ class Vendor(Base):
         cascade="all, delete-orphan"
     )
 
-
 class VendorTransaction(Base):
     __tablename__ = "vendor_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False)
 
-    vendor_id = Column(
-        Integer,
-        ForeignKey("vendors.id"),
-        nullable=False
-    )
+    transaction_type = Column(String, nullable=False)
 
-    transaction_type = Column(
-        String,
-        nullable=False
-    )
+    product_name = Column(String, nullable=True)
+    no_of_units = Column(Float, nullable=True)
+    per_unit_price = Column(Float, nullable=True)
 
-    product_name = Column(
-        String,
-        nullable=True
-    )
+    amount = Column(Float, nullable=False)
 
-    no_of_units = Column(
-        Float,
-        nullable=True
-    )
+    paid_amount = Column(Float, default=0)
+    remaining_amount = Column(Float, default=0)
 
-    per_unit_price = Column(
-        Float,
-        nullable=True
-    )
-
-    amount = Column(
-        Float,
-        nullable=False
-    )
-
-    description = Column(String, nullable=True)
     payment_method = Column(String, nullable=True)
     payment_reference = Column(String, nullable=True)
 
+    description = Column(String, nullable=True)
 
-    vendor = relationship(
-        "Vendor",
-        back_populates="transactions"
-    )
+    vendor = relationship("Vendor", back_populates="transactions")
+    
 class Inventory(Base):
     __tablename__ = "inventory"
     id = Column(Integer, primary_key=True)
